@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, Plus, ArrowRight, ArrowLeft, Trash2, Edit, Check, XCircle, Layers, Copy, GripVertical, TrendingUp, AlertTriangle } from "lucide-react";
+import { Search, Loader2, Plus, ArrowRight, ArrowLeft, Trash2, Edit, Check, XCircle, Layers, Copy, GripVertical, TrendingUp, AlertTriangle, Package } from "lucide-react";
 import { Reorder } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import apiFetch from "@/lib/api";
@@ -87,6 +87,8 @@ export default function ManageProduct() {
     const [showTemplateSelector, setShowTemplateSelector] = useState(false);
     const [productForTemplate, setProductForTemplate] = useState<Product | null>(null);
     const [templates, setTemplates] = useState<any[]>([]);
+    const [userRole, setUserRole] = useState<string>("user");
+    const [supplierShops, setSupplierShops] = useState<string[]>([]);
     const { toast } = useToast();
 
     const searchParams = useMemo(() => new URLSearchParams(location.split('?')[1] || ""), [location]);
@@ -147,6 +149,27 @@ export default function ManageProduct() {
         }
     }, [approvalIdParam, productIdParam, productsData, selectedProduct]);
     useEffect(() => {
+        const fetchUserData = async () => {
+            try {
+                const res = await apiFetch("/api/me");
+                if (res.ok) {
+                    const data = await res.json();
+                    setUserRole(data.role || "user");
+                    
+                    if (data.role === "supplier") {
+                        const shopRes = await apiFetch("/api/supplier/my-shops");
+                        if (shopRes.ok) {
+                            const shopData = await shopRes.json();
+                            setSupplierShops((shopData.shops || []).map((s: any) => String(s.id)));
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch user data:", e);
+            }
+        };
+        fetchUserData();
+
         const fetchTemplates = async () => {
             try {
                 const res = await apiFetch("/api/material-templates");
@@ -271,7 +294,15 @@ export default function ManageProduct() {
         refetchOnMount: "always",
     });
 
-    const uniqueMaterials = Array.from(new Map((materialsData || []).map(m => [(m.id || Math.random()).toString(), m])).values());
+    const rawMaterials = materialsData || [];
+    const uniqueMaterials = Array.from(new Map(
+        rawMaterials
+            .filter(m => {
+                if (userRole !== "supplier") return true;
+                return supplierShops.includes(String(m.shop_id || m.shopId));
+            })
+            .map(m => [(m.id || Math.random()).toString(), m])
+    ).values());
 
     const availableUnitTypes = useMemo(() => {
         const defaults = ["Sqft", "Sqmt", "Length", "LS", "RFT", "RMT"];
