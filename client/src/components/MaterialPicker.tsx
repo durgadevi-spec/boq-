@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { fuzzySearch } from "@/lib/utils";
 
 type Material = {
   id: string;
@@ -95,31 +96,44 @@ export default function MaterialPicker({
 
   // Filter materials based on search query
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
       setFilteredMaterials(materials);
       return;
     }
 
-    const query = searchQuery.toLowerCase();
-    const filtered = materials.filter((material) => {
-      const name = material.name?.toLowerCase() || "";
-      const code = material.code?.toLowerCase() || "";
-      const category = material.category?.toLowerCase() || "";
-      const subcategory = material.subcategory?.toLowerCase() || "";
-      const shopName = material.shop_name?.toLowerCase() || "";
-      const hsn = material.hsn_code?.toLowerCase() || "";
-      const sac = material.sac_code?.toLowerCase() || "";
+    const filtered = materials
+      .map((material) => {
+        const name = (material.name || "").toLowerCase();
+        const code = (material.code || "").toLowerCase();
 
-      return (
-        name.includes(query) ||
-        code.includes(query) ||
-        category.includes(query) ||
-        subcategory.includes(query) ||
-        shopName.includes(query) ||
-        hsn.includes(query) ||
-        sac.includes(query)
-      );
-    });
+        // Use fuzzySearch from utils to handle multi-word, synonyms, and partial matching
+        // Restrict to only name and code per user request (no categories, shop names, etc)
+        const isMatch = fuzzySearch(query, [
+          name,
+          code,
+        ]);
+
+        if (!isMatch) return null;
+
+        // Calculate score for ranking
+        let score = 0;
+        
+        // Exact name match or contains full query in name (high priority)
+        if (name.includes(query)) score += 100;
+          
+        // Any word from query in name
+        const queryWords = query.split(/\s+/).filter(Boolean);
+        if (queryWords.some(word => name.includes(word))) score += 50;
+
+        // Match in code
+        if (code.includes(query)) score += 30;
+
+        return { material, score };
+      })
+      .filter((item): item is { material: Material; score: number } => item !== null)
+      .sort((a, b) => b.score - a.score)
+      .map((item) => item.material);
 
     setFilteredMaterials(filtered);
   }, [searchQuery, materials]);
