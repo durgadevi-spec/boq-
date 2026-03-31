@@ -123,6 +123,20 @@ const getItemMetrics = (td: any) => {
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Parse a product image field which may be a plain URL or a JSON-serialised array of URLs */
+const parseProductImage = (imageField: string | null | undefined): string | null => {
+  if (!imageField) return null;
+  try {
+    if (imageField.startsWith('[')) {
+      const arr = JSON.parse(imageField);
+      return Array.isArray(arr) && arr.length > 0 ? String(arr[0]) : null;
+    }
+    return imageField;
+  } catch {
+    return imageField;
+  }
+};
+
 type Project = {
   id: string;
   name: string;
@@ -2106,8 +2120,9 @@ export default function FinalizeBoq() {
           : derivedProductName;
         const category = tableData.category || "";
 
-        if (tableData.image) {
-          rowImages[boqIdx] = tableData.image;
+        const parsedImageUrl = parseProductImage(tableData.image);
+        if (parsedImageUrl) {
+          rowImages[boqIdx] = parsedImageUrl;
         }
 
         const manualQtyStr = productQuantities[boqItem.id];
@@ -2242,6 +2257,28 @@ export default function FinalizeBoq() {
       } catch (e) {
         console.warn("Could not load logo for PDF header", e);
       }
+
+      // Pre-fetch all product images as base64 data URLs (jsPDF requires data URLs, not raw URLs)
+      const fetchedImages: { [rowIndex: number]: string } = {};
+      await Promise.all(
+        Object.entries(rowImages).map(async ([idxStr, url]) => {
+          const idx = parseInt(idxStr);
+          try {
+            const resp = await fetch(url);
+            if (!resp.ok) return;
+            const blob = await resp.blob();
+            const dataUrl = await new Promise<string | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(blob);
+            });
+            if (dataUrl) fetchedImages[idx] = dataUrl;
+          } catch (e) {
+            console.warn(`Failed to pre-fetch product image for row ${idx}:`, e);
+          }
+        })
+      );
 
       // 5. PDF Generation
       const doc = new jsPDF({ orientation: "landscape" });
@@ -2402,10 +2439,10 @@ export default function FinalizeBoq() {
           }
         },
         didDrawCell: (data: any) => {
-          if (data.section === 'body' && data.column.index === productColIndex && rowImages[data.row.index]) {
+          if (data.section === 'body' && data.column.index === productColIndex && fetchedImages[data.row.index]) {
             try {
-              const base64Img = rowImages[data.row.index];
-              const format = base64Img.includes("png") ? "PNG" : "JPEG";
+              const base64Img = fetchedImages[data.row.index];
+              const format = base64Img.startsWith('data:image/png') ? "PNG" : "JPEG";
               doc.addImage(base64Img, format, data.cell.x + 2, data.cell.y + 1, 25, 25);
             } catch (e) {
               console.warn("Failed to add image to PDF cell", e);
@@ -3641,16 +3678,20 @@ export default function FinalizeBoq() {
                             {!hiddenPredefinedCols.product && (
                               <td className="border-r px-1.5 py-1 font-medium text-gray-800 text-[10px] align-middle">
                                 <div className="flex items-center gap-2">
-                                  {tableData.image && (
-                                    <div className="flex-shrink-0">
-                                      <img
-                                        src={tableData.image}
-                                        alt={productName}
-                                        className="h-10 w-10 object-cover rounded border shadow-sm"
-                                        title="Product Image"
-                                      />
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const imgSrc = parseProductImage(tableData.image);
+                                    return imgSrc ? (
+                                      <div className="flex-shrink-0">
+                                        <img
+                                          src={imgSrc}
+                                          alt={productName}
+                                          className="h-10 w-10 object-cover rounded border shadow-sm"
+                                          title="Product Image"
+                                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                        />
+                                      </div>
+                                    ) : null;
+                                  })()}
                                   <div className="flex flex-col gap-0.5">
                                     <div className="font-bold leading-tight line-clamp-2">{productName}</div>
                                     {category && <div className="text-[8px] text-blue-500 font-extrabold uppercase tracking-tighter">{category}</div>}
