@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Save, ArrowLeft, Camera, Pencil, Layers, X, GripVertical, FileText, Search, MessageSquare, Image as ImageIcon, Move, Lock, Unlock, ShieldAlert, Cloud, Check, AlertTriangle, FileUp, FileSpreadsheet, Download, Paperclip, ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine, GitBranch } from "lucide-react";
+import { Plus, Trash2, Save, ArrowLeft, Camera, Pencil, Layers, X, GripVertical, FileText, Search, MessageSquare, Image as ImageIcon, Move, Lock, Unlock, ShieldAlert, Cloud, Check, AlertTriangle, FileUp, FileSpreadsheet, Download, Paperclip, ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine, GitBranch, Store } from "lucide-react";
 import { Reorder, useDragControls } from "framer-motion";
 import { SketchPad } from "@/components/SketchPad";
 import apiFetch from "@/lib/api";
@@ -53,6 +53,8 @@ interface PlanItem {
   postImages: PlanImage[]; // POST-work images
   images?: PlanImage[]; // Legacy field for compatibility
   category?: string; // NEW
+  assigned_vendor_id?: string;
+  vendor_name?: string;
 }
 
 const parseImages = (imageField: any): string[] => {
@@ -165,9 +167,11 @@ const SketchPlanRow = ({
   searchResults, searching, loadMaterials, setMaterialSearch,
   openPopoverIdx, setOpenPopoverIdx, renameRowImage, removeRowImage,
   handleRowImageUpload, isLocked, isCompact, setPreviewImage,
-  setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen
+  setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen,
+  isSelected, toggleSelect, userRole
 }: any) => {
   const dragControls = useDragControls();
+  const isSupplier = userRole === "supplier";
 
   return (
     <Reorder.Item
@@ -179,8 +183,15 @@ const SketchPlanRow = ({
       className="border-b hover:bg-slate-50/30 transition-colors bg-white"
     >
       <td className="px-2 py-2 text-center">
+        {!isSupplier && (
+          <Checkbox 
+            checked={isSelected} 
+            onCheckedChange={() => toggleSelect(item.id)} 
+            className="mr-2"
+          />
+        )}
         <GripVertical
-          className="w-4 h-4 text-slate-300 cursor-grab active:cursor-grabbing hover:text-indigo-400 m-auto"
+          className="w-4 h-4 text-slate-300 cursor-grab active:cursor-grabbing hover:text-indigo-400 m-auto inline-block"
           onPointerDown={(e) => dragControls.start(e)}
         />
       </td>
@@ -305,9 +316,9 @@ const SketchPlanRow = ({
               <Input
                 placeholder="Or type a custom name and press Enter..."
                 className="h-10 text-sm"
+                onChange={(e) => updateItem(idx, "item_name", e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && e.currentTarget.value.trim()) {
-                    updateItem(idx, "item_name", e.currentTarget.value.trim());
+                  if (e.key === "Enter") {
                     setOpenPopoverIdx(null);
                   }
                 }}
@@ -352,6 +363,15 @@ const SketchPlanRow = ({
       <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
         <Input value={item.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={cn("bg-slate-50 font-bold text-indigo-700 px-1", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} disabled={isLocked} />
       </td>
+      {!isSupplier && (
+        <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
+          <div className="flex flex-col">
+            <span className={cn("truncate font-medium text-indigo-600", isCompact ? "text-[8px]" : "text-[10px]")}>
+              {item.vendor_name || "-"}
+            </span>
+          </div>
+        </td>
+      )}
       {/* Pre-work Photos Column */}
       <td className={cn("px-1 text-center", isCompact ? "py-0" : "py-2")}>
         <PhotoColumn
@@ -433,6 +453,12 @@ export default function CreateSketchPlan() {
   const [materialSearch, setMaterialSearch] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [assigningLoading, setAssigningLoading] = useState(false);
+  const [loadingToProposal, setLoadingToProposal] = useState(false);
+  const [vendorSearchTerm, setVendorSearchTerm] = useState("");
 
   // New state
   const [projectOpen, setProjectOpen] = useState(false);
@@ -542,14 +568,92 @@ export default function CreateSketchPlan() {
     setSketchDialogOpen(false);
   }, [sketchTarget, items.length, toast]);
 
+  const toggleSelectItem = (id: string) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedItemIds.size === items.length) {
+      setSelectedItemIds(new Set());
+    } else {
+      setSelectedItemIds(new Set(items.map(item => item.id)));
+    }
+  };
+
+  const loadVendors = async () => {
+    try {
+      setVendorSearchTerm(""); // Reset search when loading
+      const res = await apiFetch("/api/shops");
+      if (res.ok) {
+        const data = await res.json();
+        setVendors(data.shops || []);
+      }
+    } catch (e) {
+      console.error("Failed to load vendors", e);
+    }
+  };
+
+  const handleAssignToVendor = async (shopId: string) => {
+    if (selectedItemIds.size === 0) return;
+    
+    setAssigningLoading(true);
+    try {
+      const shopName = vendors.find(v => v.id === shopId)?.name || "Vendor";
+      const updatedItems = items.map(item => {
+        if (selectedItemIds.has(item.id)) {
+          return { ...item, assigned_vendor_id: shopId, vendor_name: shopName };
+        }
+        return item;
+      });
+      
+      setItems(updatedItems);
+      toast({ title: "Success", description: `Assigned ${selectedItemIds.size} items to ${shopName}` });
+      setSelectedItemIds(new Set());
+      setShowAssignDialog(false);
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to assign items", variant: "destructive" });
+    } finally {
+      setAssigningLoading(false);
+    }
+  };
+
+  const handleLoadToProposal = async () => {
+    if (!currentId) return;
+    setLoadingToProposal(true);
+    try {
+      const res = await apiFetch(`/api/sketch-plans/${currentId}/load-to-proposal`, {
+        method: "POST"
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast({ title: "Success", description: "Items loaded to proposal successfully" });
+        setLocation(`/proposal/${data.projectId}?versionId=${data.versionId}`);
+      } else {
+        const error = await res.json();
+        toast({ title: "Error", description: error.message || "Failed to load to proposal", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "Something went wrong", variant: "destructive" });
+    } finally {
+      setLoadingToProposal(false);
+    }
+  };
+
   // Load initial data
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const projectsRes = await apiFetch("/api/boq-projects");
-        if (projectsRes.ok) {
-          const data = await projectsRes.json();
-          setProjects(data.projects || []);
+        if (!isSupplier) {
+          const projectsRes = await apiFetch("/api/boq-projects");
+          if (projectsRes.ok) {
+            const data = await projectsRes.json();
+            setProjects(data.projects || []);
+          }
         }
 
         if (paramId) {
@@ -735,9 +839,13 @@ export default function CreateSketchPlan() {
   }, [materialSearch, openPopoverIdx, loadMaterials]);
 
   const addItem = () => {
+    // Clear filters to ensure the new item is visible
+    setSearchTerm("");
+    setCategoryFilter("all");
+
     setItems([
       ...items,
-      { id: Date.now().toString(), item_name: "", description: "", length: "", width: "", height: "", qty: "1", unit: "Nos", dimension_unit: "feet", remarks: "", preImages: [], postImages: [], images: [] }
+      { id: `ski-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, item_name: "", description: "", length: "", width: "", height: "", qty: "1", unit: "Nos", dimension_unit: "feet", remarks: "", preImages: [], postImages: [], images: [] }
     ]);
   };
 
@@ -893,7 +1001,16 @@ export default function CreateSketchPlan() {
 
   const performSave = async (showToast: boolean = true) => {
     if (isLocked) return;
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      if (showToast) {
+        toast({
+          title: "Validation Error",
+          description: "Please enter a Plan Name before saving.",
+          variant: "destructive"
+        });
+      }
+      return;
+    }
 
     if (!showToast) setAutoSaveStatus("saving");
     else setSaving(true);
@@ -909,7 +1026,12 @@ export default function CreateSketchPlan() {
             ...(it.preImages || []).map(img => ({ ...img, name: `PRE_${img.name}` })),
             ...(it.postImages || []).map(img => ({ ...img, name: `POST_${img.name}` }))
           ];
-          return { ...it, images: flattenedImages };
+          return { 
+            ...it, 
+            images: flattenedImages,
+            assigned_vendor_id: it.assigned_vendor_id,
+            vendor_name: it.vendor_name
+          };
         }),
         images: planImages.map((img: any) => ({ item_id: null, image_url: img.url, name: img.name })),
         attachments: attachments.map(att => ({ file_url: att.url, file_name: att.name, file_type: att.type }))
@@ -917,7 +1039,13 @@ export default function CreateSketchPlan() {
 
       const jsonStr = JSON.stringify(payload);
       if (jsonStr === lastSavedRef.current) {
-        if (!showToast) setAutoSaveStatus("saved");
+        if (!showToast) {
+          setAutoSaveStatus("saved");
+          return;
+        }
+        // If it's a manual save and already identical, just treat as success
+        toast({ title: "Already Saved", description: "Your changes were already captured by auto-save." });
+        setLocation("/sketch-plans");
         return;
       }
 
@@ -944,11 +1072,20 @@ export default function CreateSketchPlan() {
           setAutoSaveStatus("saved");
         }
       } else {
-        if (!showToast) setAutoSaveStatus("error");
+        const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
+        if (showToast) {
+          toast({ title: "Error", description: errorData.message || "Failed to save plan", variant: "destructive" });
+        } else {
+          setAutoSaveStatus("error");
+        }
       }
     } catch (err) {
       console.error("Save error", err);
-      if (!showToast) setAutoSaveStatus("error");
+      if (showToast) {
+        toast({ title: "Error", description: "Failed to save plan", variant: "destructive" });
+      } else {
+        setAutoSaveStatus("error");
+      }
     } finally {
       setSaving(false);
     }
@@ -1489,7 +1626,13 @@ export default function CreateSketchPlan() {
             <CardContent className="p-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
               <div className="space-y-1 col-span-1 md:col-span-3">
                 <Label className="text-[10px] uppercase font-bold text-slate-500">Plan Name</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8 text-xs" placeholder="Plan Name" disabled={isLocked || userRole === "supplier"} />
+                <Input 
+                  value={name} 
+                  onChange={(e) => setName(e.target.value)} 
+                  className={cn("h-8 text-xs", !name.trim() && "border-red-300 bg-red-50 focus:ring-red-500")} 
+                  placeholder="Enter Plan Name (Required)" 
+                  disabled={isLocked || userRole === "supplier"} 
+                />
               </div>
               <div className="space-y-1 col-span-1 md:col-span-3">
                 <Label className="text-[10px] uppercase font-bold text-slate-500">Associated Project</Label>
@@ -1591,6 +1734,26 @@ export default function CreateSketchPlan() {
                 <FileText className="w-4 h-4 text-indigo-500" /> Project Itemized Requirements
               </CardTitle>
               <div className="flex gap-2">
+                  {userRole === "supplier" && currentId && (
+                    <Button 
+                      onClick={handleLoadToProposal} 
+                      disabled={loadingToProposal} 
+                      size="sm" 
+                      className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      {loadingToProposal ? "Loading..." : "Load to Proposal"}
+                    </Button>
+                  )}
+                  {selectedItemIds.size > 0 && !isSupplier && (
+                    <Button 
+                      onClick={() => { loadVendors(); setShowAssignDialog(true); }} 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-8 gap-1 border-amber-500 text-amber-600 hover:bg-amber-50"
+                    >
+                      Assign to Vendor ({selectedItemIds.size})
+                    </Button>
+                  )}
                 {userRole !== "supplier" && (
                   <Button onClick={addItem} size="sm" variant="outline" className="h-8 gap-1 border-indigo-200 text-indigo-600 hover:bg-indigo-50" disabled={isLocked}>
                     <Plus className="w-3.5 h-3.5" /> Add New Row
@@ -1606,7 +1769,14 @@ export default function CreateSketchPlan() {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b">
-                      <th className={cn("w-8 px-2", isCompact ? "py-1" : "py-3")}></th>
+                      <th className={cn("w-12 px-2", isCompact ? "py-1" : "py-3")}>
+                        {!isSupplier && (
+                          <Checkbox 
+                            checked={selectedItemIds.size === items.length && items.length > 0} 
+                            onCheckedChange={toggleSelectAll}
+                          />
+                        )}
+                      </th>
                       <th className={cn("w-10 px-2 text-left", isCompact ? "py-1" : "py-3")}>#</th>
                       <th className={cn("w-[220px] min-w-[220px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Notes/Review</th>
                       <th className={cn("w-[160px] min-w-[160px] max-w-[160px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Item/Product</th>
@@ -1615,6 +1785,9 @@ export default function CreateSketchPlan() {
                       <th className={cn("w-[60px] px-2 text-left font-bold text-indigo-900 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>W</th>
                       <th className={cn("w-[60px] px-2 text-left font-bold text-indigo-900 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>H</th>
                       <th className={cn("w-[80px] px-2 text-center bg-indigo-50 font-bold text-indigo-700", isCompact ? "py-1" : "py-3")}>QTY</th>
+                      {!isSupplier && (
+                        <th className={cn("w-[100px] px-2 text-left font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Assignee</th>
+                      )}
                       <th className={cn("w-[60px] px-2 text-center border-l bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Pre</th>
                       <th className={cn("w-[60px] px-2 text-center bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Post</th>
                       <th className={cn("w-10 px-2 text-center", isCompact ? "py-1" : "py-3")}>Del</th>
@@ -1622,6 +1795,7 @@ export default function CreateSketchPlan() {
                   </thead>
                   <Reorder.Group as="tbody" axis="y" values={items} onReorder={setItems}>
                     {items.filter(it =>
+                      (isSupplier ? it.assigned_vendor_id === (user as any)?.shopId : true) &&
                       (it.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                         it.description.toLowerCase().includes(searchTerm.toLowerCase())) &&
                       (categoryFilter === "all" || it.category === categoryFilter)
@@ -1653,6 +1827,9 @@ export default function CreateSketchPlan() {
                         setSketchInitialData={setSketchInitialData}
                         toast={toast}
                         setSketchDialogOpen={setSketchDialogOpen}
+                        isSelected={selectedItemIds.has(item.id)}
+                        toggleSelect={toggleSelectItem}
+                        userRole={userRole}
                       />
                     ))}
                   </Reorder.Group>
@@ -1941,6 +2118,98 @@ export default function CreateSketchPlan() {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Assign Vendor Dialog */}
+        <Dialog open={showAssignDialog} onOpenChange={(open) => {
+          setShowAssignDialog(open);
+          if (!open) setVendorSearchTerm("");
+        }}>
+          <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-6 text-white shrink-0">
+              <DialogHeader>
+                <div className="flex items-center justify-between">
+                  <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
+                    <Store className="w-6 h-6 border-2 border-violet-400 rounded-full p-0.5" />
+                    Assign Items to Vendor
+                  </DialogTitle>
+                </div>
+                <p className="text-violet-100 text-sm mt-1">
+                  You have selected <span className="font-bold underline decoration-amber-400 underline-offset-4">{selectedItemIds.size}</span> items to distribute.
+                </p>
+              </DialogHeader>
+            </div>
+            
+            <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
+              <div className="relative group shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-violet-500 transition-colors" />
+                <Input 
+                  placeholder="Search vendors by name or city..." 
+                  className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-medium"
+                  value={vendorSearchTerm}
+                  onChange={(e) => setVendorSearchTerm(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
+                {vendors.filter(v => 
+                  v.name?.toLowerCase().includes(vendorSearchTerm.toLowerCase()) || 
+                  v.city?.toLowerCase().includes(vendorSearchTerm.toLowerCase())
+                ).length === 0 ? (
+                  <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
+                      <Search className="w-6 h-6 text-slate-300" />
+                    </div>
+                    <p className="text-sm text-slate-500 font-medium">No matching vendors found.</p>
+                    <Button variant="link" size="sm" onClick={() => setVendorSearchTerm("")} className="text-violet-600 p-0 h-auto">Clear Search</Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 p-1">
+                    {vendors.filter(v => 
+                      v.name?.toLowerCase().includes(vendorSearchTerm.toLowerCase()) || 
+                      v.city?.toLowerCase().includes(vendorSearchTerm.toLowerCase())
+                    ).map(v => (
+                      <Button
+                        key={v.id}
+                        variant="outline"
+                        className="w-full justify-start h-auto py-3 px-4 hover:border-violet-400 hover:bg-violet-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                        onClick={() => handleAssignToVendor(v.id)}
+                        disabled={assigningLoading}
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-violet-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
+                          <Store className="w-5 h-5 text-slate-500 group-hover:text-violet-600" />
+                        </div>
+                        <div className="flex flex-col items-start min-w-0 flex-1 text-left">
+                          <span className="font-bold text-slate-700 group-hover:text-violet-900 truncate w-full text-sm">{v.name}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {v.city && (
+                              <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-violet-400"></span> {v.city}
+                              </span>
+                            )}
+                            {v.gstno && (
+                              <span className="text-[10px] text-slate-400 font-mono tracking-tighter">
+                                {v.gstno}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
+                          <Check className="w-5 h-5 text-violet-600" />
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="p-4 bg-slate-50 border-t flex justify-end shrink-0">
+              <Button variant="ghost" onClick={() => setShowAssignDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-9">
+                Close
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
 

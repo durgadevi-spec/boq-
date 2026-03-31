@@ -534,6 +534,8 @@ export async function registerRoutes(
   try {
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS material_id UUID`);
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS dimension_unit VARCHAR(10) DEFAULT 'feet'`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_vendor_id VARCHAR(100)`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255)`);
   } catch (err) {
     console.warn("[db] Could not add enhanced columns to sketch_plan_items:", (err as any)?.message || err);
   }
@@ -8644,9 +8646,9 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             const srcItem = srcItems.rows[i];
             const newItemId = `ski-${Date.now()}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-              [newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, srcItem.material_id, srcItem.dimension_unit || 'feet']
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+              [newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, srcItem.material_id, srcItem.dimension_unit || 'feet', srcItem.assigned_vendor_id || null, srcItem.vendor_name || null]
             );
 
             // Copy item-level images
@@ -8750,10 +8752,12 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       await query("BEGIN");
 
       try {
+        const finalPlanDate = (plan_date && plan_date.trim() !== "") ? plan_date : null;
+        console.log(`[api/sketch-plans] Creating plan: name=${name}, date=${finalPlanDate}, project_id=${project_id}`);
         await query(
           `INSERT INTO sketch_plans (id, name, project_id, location, plan_date, created_by) 
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [id, name, project_id || null, location || null, plan_date || null, created_by]
+          [id, name, project_id || null, location || null, finalPlanDate, created_by]
         );
 
         if (items && Array.isArray(items)) {
@@ -8761,8 +8765,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             const item = items[i];
             const itemId = `ski-${`${Date.now()}`.padStart(15, '0')}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit) 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name) 
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
               [
                 itemId, id, item.item_name, item.description,
                 parseSafeNumeric(item.length),
@@ -8771,7 +8775,9 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
                 parseSafeNumeric(item.qty),
                 item.unit, item.remarks,
                 item.material_id || null,
-                item.dimension_unit || 'feet'
+                item.dimension_unit || 'feet',
+                item.assigned_vendor_id || null,
+                item.vendor_name || null
               ]
             );
 
@@ -8839,9 +8845,11 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       await query("BEGIN");
 
       try {
+        const finalPlanDate = (plan_date && plan_date.trim() !== "") ? plan_date : null;
+        console.log(`[api/sketch-plans] Updating plan: id=${id}, name=${name}, date=${finalPlanDate}, project_id=${project_id}`);
         await query(
           `UPDATE sketch_plans SET name = $1, project_id = $2, location = $3, plan_date = $4, updated_at = NOW() WHERE id = $5`,
-          [name, project_id || null, location || null, plan_date || null, id]
+          [name, project_id || null, location || null, finalPlanDate, id]
         );
 
         // Delete old items and images
@@ -8853,8 +8861,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             const item = items[i];
             const itemId = `ski-${`${Date.now()}`.padStart(15, '0')}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit) 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name) 
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
               [
                 itemId, id, item.item_name, item.description,
                 parseSafeNumeric(item.length),
@@ -8863,7 +8871,9 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
                 parseSafeNumeric(item.qty),
                 item.unit, item.remarks,
                 item.material_id || null,
-                item.dimension_unit || 'feet'
+                item.dimension_unit || 'feet',
+                item.assigned_vendor_id || null,
+                item.vendor_name || null
               ]
             );
 
