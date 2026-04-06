@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Layout } from "@/components/layout/Layout";
+import { cn } from "@/lib/utils";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,9 +24,28 @@ import {
   ChevronDown,
   Briefcase,
   Pencil,
-  Copy
+  Copy,
+  Clock,
+  Search
 } from "lucide-react";
 import apiFetch from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+
+const PROJECT_STATUSES: { value: string; label: string; color: string }[] = [
+  { value: 'started', label: 'Started', color: 'bg-slate-100 text-slate-700' },
+  { value: 'in_progress', label: 'In Progress', color: 'bg-cyan-100 text-cyan-700' },
+  { value: 'bom_stage', label: 'BOM Stage', color: 'bg-blue-100 text-blue-700' },
+  { value: 'boq_stage', label: 'BOQ Stage', color: 'bg-indigo-100 text-indigo-700' },
+  { value: 'client_approval', label: 'Client Approval', color: 'bg-amber-100 text-amber-700' },
+  { value: 'work_in_execution', label: 'Work in Execution', color: 'bg-green-100 text-green-700' },
+  { value: 'finance', label: 'Finance', color: 'bg-purple-100 text-purple-700' },
+  { value: 'hold', label: 'On Hold', color: 'bg-orange-100 text-orange-700' },
+  { value: 'cancelled', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
+  { value: 'closed', label: 'Closed', color: 'bg-gray-200 text-gray-600' },
+];
+
+const getProjectStatusMeta = (s?: string) => PROJECT_STATUSES.find(x => x.value === s) ?? { label: s || 'Started', color: 'bg-slate-100 text-slate-700' };
+
 
 export default function CreateProject() {
   const createFormRef = (typeof document !== 'undefined') ? { current: null as HTMLDivElement | null } : { current: null };
@@ -54,6 +75,16 @@ export default function CreateProject() {
 
   const { toast } = useToast();
   const [projects, setProjects] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredProjects = projects.filter(p => {
+    const q = searchQuery.toLowerCase();
+    return (
+      (p.name || "").toLowerCase().includes(q) ||
+      (p.client || "").toLowerCase().includes(q) ||
+      (p.location || "").toLowerCase().includes(q)
+    );
+  });
 
 
   const handleClone = async (p: any) => {
@@ -161,7 +192,11 @@ export default function CreateProject() {
         const res = await apiFetch("/api/boq-projects", { headers: {} });
         if (res.ok) {
           const data = await res.json();
-          setProjects(data.projects || []);
+          const normalized = (data.projects || []).map((p: any) => ({
+            ...p,
+            project_status: p.project_status ?? p.status,
+          }));
+          setProjects(normalized);
         }
       } catch (e) {
         console.warn("Failed to load projects", e);
@@ -579,14 +614,26 @@ export default function CreateProject() {
         {/* Projects list */}
         <Card>
           <CardContent className="space-y-4 pt-6">
-            <h2 className="text-lg font-semibold">Existing Projects</h2>
-            {projects.length === 0 ? (
-              <div className="text-sm text-muted-foreground">
-                No projects yet.
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
+              <h2 className="text-lg font-semibold">Existing Projects</h2>
+              <div className="relative w-full md:w-64 group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                <Input
+                  className="pl-9 h-9 text-xs border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 rounded-lg shadow-sm"
+                  placeholder="Search projects, clients..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
-            ) : (
-              <ul className="space-y-2">
-                {projects.map((p) => (
+            </div>
+            <div className="max-h-[550px] overflow-y-auto pr-2 border border-slate-50 rounded-lg p-2 bg-slate-50/30">
+              {filteredProjects.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  {projects.length === 0 ? "No projects yet." : "No matching projects found."}
+                </div>
+              ) : (
+                <ul className="space-y-3">
+                  {filteredProjects.map((p) => (
                   <li key={p.id} className="border rounded">
                     <div className="flex items-center justify-between p-3">
                       <div className="flex items-center gap-4">
@@ -618,6 +665,9 @@ export default function CreateProject() {
                             ) : (
                               <>
                                 <span className="font-extrabold text-slate-800">{p.name}</span>
+                                <Badge className={cn("ml-2 text-[10px] font-bold border-none", getProjectStatusMeta(p.project_status).color)}>
+                                  {getProjectStatusMeta(p.project_status).label}
+                                </Badge>
                                 <button
                                   className="text-slate-400 hover:text-indigo-600 transition-colors ml-1"
                                   onClick={(e) => {
@@ -631,14 +681,44 @@ export default function CreateProject() {
                                 </button>
                               </>
                             )}
-                            <span className="bg-slate-100 text-slate-600 text-[9px] px-1.5 py-0.5 rounded font-bold border border-slate-200 uppercase tracking-tight">V{p.current_version || 1}</span>
                           </div>
-                          <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                          <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1">
                             <span className="flex items-center gap-1 font-medium"><User className="w-3 h-3 text-slate-400" /> {p.client || "—"}</span>
                             <span className="flex items-center gap-1 font-medium"><MapPin className="w-3 h-3 text-slate-400" /> {p.location || "—"}</span>
                             <span className="flex items-center gap-1 font-medium"><Calculator className="w-3 h-3 text-slate-400" /> {p.budget || "—"}</span>
                             {p.gst_no && <span className="flex items-center gap-1 font-medium"><Receipt className="w-3 h-3 text-slate-400" /> {p.gst_no}</span>}
-                            {p.project_value && <span className="flex items-center gap-1 font-medium"><History className="w-3 h-3 text-slate-400" /> Value: {p.project_value}</span>}
+                            
+                            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 ml-auto">
+                              {p.bom_version_number && (
+                                <div className="flex items-center gap-1.5 flex-wrap justify-end bg-white p-1 rounded border border-slate-100 shadow-sm">
+                                  <span className="bg-indigo-50 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-bold border border-indigo-200 uppercase tracking-tight">
+                                    BOM V{p.bom_version_number}
+                                  </span>
+                                  {p.bom_version_price && (
+                                    <span className="flex items-center gap-1 font-extrabold text-slate-700 text-[11px] px-1">
+                                      <Calculator className="w-3 h-3 text-indigo-400" /> ₹{parseFloat(p.bom_version_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {p.boq_version_number && (
+                                <div className="flex items-center gap-1.5 flex-wrap justify-end bg-white p-1 rounded border border-slate-100 shadow-sm">
+                                  <span className="bg-blue-50 text-blue-700 text-[9px] px-1.5 py-0.5 rounded font-bold border border-blue-200 uppercase tracking-tight">
+                                    BOQ V{p.boq_version_number}
+                                  </span>
+                                  {p.boq_version_price && (
+                                    <span className="flex items-center gap-1 font-extrabold text-green-700 text-[11px] px-1">
+                                      <Calculator className="w-3 h-3 text-green-500" /> ₹{parseFloat(p.boq_version_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {!p.bom_version_number && !p.boq_version_number && (
+                                <span className="bg-slate-100 text-slate-600 text-[9px] px-1.5 py-0.5 rounded font-bold border border-slate-200 uppercase tracking-tight">
+                                  Draft / Started
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -758,6 +838,7 @@ export default function CreateProject() {
                 ))}
               </ul>
             )}
+          </div>
           </CardContent>
         </Card>
       </div>
@@ -802,6 +883,27 @@ export default function CreateProject() {
                   className="border-slate-200 focus:border-slate-400 transition-all rounded-md"
                 />
               </div>
+              <div className="space-y-1.5 group">
+                <Label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-1.5">
+                  <Clock className="w-3 h-3 text-slate-400" /> Project Status
+                </Label>
+                <Select
+                  value={editingProjectData.project_status || "bom_stage"}
+                  onValueChange={(val) => setEditingProjectData({ ...editingProjectData, project_status: val })}
+                >
+                  <SelectTrigger className="border-slate-200 rounded-md h-10 bg-white">
+                    <SelectValue placeholder="Select Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PROJECT_STATUSES.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-1.5 group">
                 <Label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-1.5">
                   <MapPin className="w-3 h-3 text-slate-400" /> Project Location
@@ -873,7 +975,7 @@ export default function CreateProject() {
                 className="font-semibold text-slate-900 border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-md h-10"
               />
             </div>
-            
+
             <div className="space-y-3">
               <Label className="text-xs font-bold text-slate-700 uppercase">Select BOM Versions to Clone</Label>
               <div className="max-h-32 overflow-y-auto space-y-2 border rounded-md p-2 bg-slate-50">
@@ -882,7 +984,7 @@ export default function CreateProject() {
                 ) : (
                   cloneBomVersions.map((v) => (
                     <div key={v.id} className="flex items-center gap-2">
-                      <Checkbox 
+                      <Checkbox
                         id={`bom-${v.id}`}
                         checked={cloneSelectedBoms.has(v.id)}
                         onCheckedChange={(checked) => {
@@ -909,7 +1011,7 @@ export default function CreateProject() {
                 ) : (
                   cloneBoqVersions.map((v) => (
                     <div key={v.id} className="flex items-center gap-2">
-                      <Checkbox 
+                      <Checkbox
                         id={`boq-${v.id}`}
                         checked={cloneSelectedBoqs.has(v.id)}
                         onCheckedChange={(checked) => {

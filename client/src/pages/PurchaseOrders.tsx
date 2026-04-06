@@ -1,12 +1,42 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
     Card,
     CardContent,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+    FileDown,
+    Search,
+    Plus,
+    Filter,
+    FileText,
+    Calendar,
+    Building2,
+    IndianRupee,
+    ChevronRight,
+    Loader2,
+    CheckCircle2,
+    Clock,
+    XCircle,
+    Truck,
+    Trash2,
+} from "lucide-react";
 import {
     Table,
     TableBody,
@@ -35,22 +65,6 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-    Search,
-    Plus,
-    Filter,
-    FileText,
-    Calendar,
-    Building2,
-    IndianRupee,
-    ChevronRight,
-    Loader2,
-    CheckCircle2,
-    Clock,
-    XCircle,
-    Truck,
-    Trash2,
-} from "lucide-react";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
@@ -65,6 +79,7 @@ interface PurchaseOrder {
     created_at: string;
     project_name?: string;
     vendor_name?: string;
+    version_number?: string;
 }
 
 interface Project {
@@ -88,6 +103,105 @@ export default function PurchaseOrders() {
     const [selectedPoIds, setSelectedPoIds] = useState<Set<string>>(new Set());
     const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
+    // PDF Export State
+    const [isPdfExportDialogOpen, setIsPdfExportDialogOpen] = useState(false);
+    const [selectedPdfExportCols, setSelectedPdfExportCols] = useState<string[]>([]);
+    const [exportingPo, setExportingPo] = useState<PurchaseOrder | null>(null);
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+    const handleDownloadPdfOpenDialog = (po: PurchaseOrder, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setExportingPo(po);
+        
+        const potentialPdfCols = ["S.No", "Item Details", "Unit", "HSN", "SAC", "Original Qty", "Ordered Qty", "Balance Qty", "Tax %", "Rate", "Amount"];
+        const defaultPdfSelection = ["S.No", "Item Details", "Unit", "HSN", "SAC", "Original Qty", "Ordered Qty", "Balance Qty", "Tax %", "Rate", "Amount"];
+
+        try {
+            const saved = localStorage.getItem('po_pdf_export_cols');
+            if (saved) {
+                const parsed: string[] = JSON.parse(saved);
+                const valid = parsed.filter(c => potentialPdfCols.includes(c));
+                setSelectedPdfExportCols(valid.length > 0 ? valid : defaultPdfSelection);
+            } else {
+                setSelectedPdfExportCols(defaultPdfSelection);
+            }
+        } catch {
+            setSelectedPdfExportCols(defaultPdfSelection);
+        }
+        setIsPdfExportDialogOpen(true);
+    };
+
+    const handleDownloadPdf = async () => {
+        if (!exportingPo) return;
+        setIsGeneratingPdf(true);
+
+        try {
+            localStorage.setItem('po_pdf_export_cols', JSON.stringify(selectedPdfExportCols));
+
+            // Fetch PO Detail for items
+            const res = await apiFetch(`/api/purchase-orders/${exportingPo.id}`);
+            if (!res.ok) throw new Error("Failed to fetch PO details");
+            const data = await res.json();
+            const poDetail = data.purchaseOrder;
+            const poItems = data.items || [];
+
+            const doc = new jsPDF({ orientation: "portrait" });
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const marginX = 10;
+
+            // Header Section
+            doc.setFontSize(18);
+            doc.setFont("helvetica", "bold");
+            doc.text("PURCHASE ORDER", pageWidth / 2, 20, { align: "center" });
+
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            doc.text(`PO Number: ${poDetail.po_number}`, marginX, 35);
+            doc.text(`Date: ${new Date(poDetail.created_at).toLocaleDateString()}`, marginX, 40);
+            doc.text(`Project: ${poDetail.project_name || "N/A"}`, marginX, 45);
+            doc.text(`Vendor: ${poDetail.vendor_name || "N/A"}`, marginX, 50);
+
+            // Table Section
+            const headers = selectedPdfExportCols;
+            const body = poItems.map((item: any, idx: number) => {
+                const row: any[] = [];
+                if (selectedPdfExportCols.includes("S.No")) row.push(idx + 1);
+                if (selectedPdfExportCols.includes("Item")) row.push(item.item || "N/A");
+                if (selectedPdfExportCols.includes("Description")) row.push(item.description || "N/A");
+                if (selectedPdfExportCols.includes("HSN/SAC")) row.push(item.hsn_code || item.sac_code || "N/A");
+                if (selectedPdfExportCols.includes("Unit")) row.push(item.unit || "N/A");
+                if (selectedPdfExportCols.includes("Qty")) row.push(parseFloat(item.qty).toFixed(2));
+                if (selectedPdfExportCols.includes("Rate")) row.push(parseFloat(item.rate).toFixed(2));
+                if (selectedPdfExportCols.includes("Total")) row.push(parseFloat(item.amount).toFixed(2));
+                return row;
+            });
+
+            autoTable(doc, {
+                head: [headers],
+                body: body,
+                startY: 60,
+                margin: { left: marginX, right: marginX },
+                styles: { fontSize: 9 },
+                headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+                foot: [[
+                    ...Array(headers.length - 2).fill(""),
+                    "Total Amount",
+                    `INR ${parseFloat(poDetail.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                ]],
+                footStyles: { fillColor: [240, 240, 240], textColor: 0, fontStyle: 'bold' }
+            });
+
+            doc.save(`PO_${poDetail.po_number}.pdf`);
+            setIsPdfExportDialogOpen(false);
+            toast({ title: "Success", description: "PDF generated successfully" });
+        } catch (error) {
+            console.error("PDF Export Error:", error);
+            toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+        } finally {
+            setIsGeneratingPdf(false);
+        }
+    };
 
     useEffect(() => {
         fetchData();
@@ -345,7 +459,7 @@ export default function PurchaseOrders() {
                                         <Building2 className="h-4 w-4 mr-2" />
                                         <SelectValue placeholder="Project" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className="max-h-[300px] overflow-y-auto">
                                         <SelectItem value="all">All Projects</SelectItem>
                                         {projects.map((p) => (
                                             <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -383,6 +497,7 @@ export default function PurchaseOrders() {
                                         <TableHead className="w-6"></TableHead>
                                         <TableHead className="font-bold">Annexure No.</TableHead>
                                         <TableHead className="font-bold">Project</TableHead>
+                                        <TableHead className="font-bold">Version</TableHead>
                                         <TableHead className="font-bold">Vendor</TableHead>
                                         <TableHead className="font-bold text-right">Amount</TableHead>
                                         <TableHead className="font-bold">Status</TableHead>
@@ -393,30 +508,25 @@ export default function PurchaseOrders() {
                                 <TableBody>
                                     {sortedGroupBases.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                                            <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
                                                 No Annexures found.
                                             </TableCell>
                                         </TableRow>
                                     ) : (
                                         sortedGroupBases.map((base) => {
                                             const group = groupedPOs[base];
-                                            
-                                            // Identify the "Main" PO of the group (the one without suffix or with -R0)
-                                            // If none found (unlikely), fallback to the oldest one
                                             let mainPo = group.find(p => p.po_number === base || p.po_number.endsWith("-R0"));
                                             if (!mainPo) {
-                                                // Fallback: the one with the lowest revision number or earliest date
                                                 mainPo = [...group].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
                                             }
                                             
                                             const subPos = group.filter(p => p.id !== mainPo!.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                                            
                                             const isExpanded = expandedGroups.has(base);
                                             const hasMultiple = group.length > 1;
 
                                             return (
-                                                <>
-                                                    <TableRow key={mainPo!.id} className="hover:bg-slate-50/50 cursor-pointer group" onClick={() => setLocation(`/purchase-orders/${mainPo!.id}`)}>
+                                                <React.Fragment key={mainPo!.id}>
+                                                    <TableRow className="hover:bg-slate-50/50 cursor-pointer group" onClick={() => setLocation(`/purchase-orders/${mainPo!.id}`)}>
                                                         <TableCell className="text-center border-r" onClick={(e) => e.stopPropagation()}>
                                                             {user?.role !== 'purchase_team' && (
                                                                 <input 
@@ -427,7 +537,7 @@ export default function PurchaseOrders() {
                                                                 />
                                                             )}
                                                         </TableCell>
-                                                        <TableCell className="p-0 text-center" onClick={(e) => hasMultiple && toggleGroup(base, e)}>
+                                                        <TableCell className="p-0 text-center" onClick={(e) => { e.stopPropagation(); if(hasMultiple) toggleGroup(base, e); }}>
                                                             {hasMultiple && (
                                                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-100">
                                                                     <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
@@ -439,6 +549,15 @@ export default function PurchaseOrders() {
                                                             {hasMultiple && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{group.length}</Badge>}
                                                         </TableCell>
                                                         <TableCell className="font-medium">{mainPo!.project_name || "N/A"}</TableCell>
+                                                        <TableCell>
+                                                            {mainPo!.version_number !== null && mainPo!.version_number !== undefined ? (
+                                                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-bold">
+                                                                    V{mainPo!.version_number}
+                                                                </Badge>
+                                                            ) : (
+                                                                <span className="text-muted-foreground italic text-xs">N/A</span>
+                                                            )}
+                                                        </TableCell>
                                                         <TableCell>{mainPo!.vendor_name || "N/A"}</TableCell>
                                                         <TableCell className="text-right font-bold text-green-700">
                                                             ₹{parseFloat(mainPo!.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -462,6 +581,15 @@ export default function PurchaseOrders() {
                                                                         <Trash2 className="h-4 w-4" />
                                                                     </Button>
                                                                 )}
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                                                    onClick={(e) => handleDownloadPdfOpenDialog(mainPo!, e)}
+                                                                    disabled={user?.role === 'purchase_team' && mainPo!.status !== 'approved'}
+                                                                >
+                                                                    <FileDown className="h-4 w-4" />
+                                                                </Button>
                                                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                                                                     <ChevronRight className="h-4 w-4" />
                                                                 </Button>
@@ -469,7 +597,6 @@ export default function PurchaseOrders() {
                                                         </TableCell>
                                                     </TableRow>
                                                     
-                                                    {/* Expanded History Rows */}
                                                     {isExpanded && subPos.map((subPo) => (
                                                         <TableRow key={subPo.id} className="bg-slate-50/50 hover:bg-slate-100/50 cursor-pointer border-l-4 border-l-slate-200" onClick={() => setLocation(`/purchase-orders/${subPo.id}`)}>
                                                             <TableCell className="text-center border-r" onClick={(e) => e.stopPropagation()}>
@@ -490,6 +617,13 @@ export default function PurchaseOrders() {
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="text-sm text-slate-500">{subPo.project_name || "N/A"}</TableCell>
+                                                            <TableCell>
+                                                                {subPo.version_number !== null && subPo.version_number !== undefined ? (
+                                                                    <Badge variant="outline" className="bg-blue-50/50 text-blue-600 border-blue-100 text-[10px] h-5">
+                                                                        V{subPo.version_number}
+                                                                    </Badge>
+                                                                ) : "-"}
+                                                            </TableCell>
                                                             <TableCell className="text-sm text-slate-500">{subPo.vendor_name || "N/A"}</TableCell>
                                                             <TableCell className="text-right text-sm font-medium text-slate-600">
                                                                 ₹{parseFloat(subPo.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -512,10 +646,19 @@ export default function PurchaseOrders() {
                                                                         <Trash2 className="h-3.5 w-3.5" />
                                                                     </Button>
                                                                 )}
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-7 w-7 p-0 text-blue-500 hover:text-blue-700"
+                                                                    onClick={(e) => handleDownloadPdfOpenDialog(subPo, e)}
+                                                                    disabled={user?.role === 'purchase_team' && subPo.status !== 'approved'}
+                                                                >
+                                                                    <FileDown className="h-3.5 w-3.5" />
+                                                                </Button>
                                                             </TableCell>
                                                         </TableRow>
                                                     ))}
-                                                </>
+                                                </React.Fragment>
                                             );
                                         })
                                     )}
@@ -569,6 +712,65 @@ export default function PurchaseOrders() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {/* PDF Export Selection Dialog */}
+            <Dialog open={isPdfExportDialogOpen} onOpenChange={setIsPdfExportDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <FileDown className="h-5 w-5 text-blue-600" />
+                            PDF Export Options
+                        </DialogTitle>
+                        <DialogDescription>
+                            Select the columns you want to include in the generated PDF for <strong>{exportingPo?.po_number}</strong>.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4">
+                        <Label className="text-sm font-semibold mb-3 block">Columns to Display</Label>
+                        <ScrollArea className="h-[200px] pr-4 border rounded-md p-3">
+                            <div className="space-y-3">
+                                {["S.No", "Item", "Description", "HSN/SAC", "Unit", "Qty", "Rate", "Total"].map((col) => (
+                                    <div key={col} className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id={`col-${col}`}
+                                            checked={selectedPdfExportCols.includes(col)}
+                                            onCheckedChange={(checked) => {
+                                                if (checked) {
+                                                    setSelectedPdfExportCols(prev => [...prev, col]);
+                                                } else {
+                                                    setSelectedPdfExportCols(prev => prev.filter(c => c !== col));
+                                                }
+                                            }}
+                                        />
+                                        <Label
+                                            htmlFor={`col-${col}`}
+                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                        >
+                                            {col}
+                                        </Label>
+                                    </div>
+                                ))}
+                            </div>
+                        </ScrollArea>
+                    </div>
+
+                    <DialogFooter className="flex justify-between sm:justify-between items-center bg-slate-50 -mx-6 -mb-6 p-4 rounded-b-lg border-t mt-2">
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedPdfExportCols(["S.No", "Item", "Description", "HSN/SAC", "Unit", "Qty", "Rate", "Total"])}>
+                            Reset Defaults
+                        </Button>
+                        <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setIsPdfExportDialogOpen(false)} disabled={isGeneratingPdf}>
+                                Cancel
+                            </Button>
+                            <Button onClick={handleDownloadPdf} disabled={isGeneratingPdf || selectedPdfExportCols.length === 0} className="bg-blue-600 hover:bg-blue-700">
+                                {isGeneratingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileDown className="h-4 w-4 mr-2" />}
+                                Download PDF
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Layout>
     );
 }

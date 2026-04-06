@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ApprovalItem {
     id: string;
@@ -60,6 +61,7 @@ export default function POApprovals() {
     const [approvalAction, setApprovalAction] = useState<"approve" | "reject">("approve");
     const [comment, setComment] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<string>("pending_approval");
 
     useEffect(() => {
         fetchApprovals();
@@ -147,6 +149,13 @@ export default function POApprovals() {
         }
     };
 
+    const filteredApprovals = approvals.filter(item => {
+        if (statusFilter === "pending_approval") return item.status === "pending_approval" || item.status === "pending";
+        if (statusFilter === "approved") return item.status === "approved";
+        if (statusFilter === "rejected") return item.status === "rejected";
+        return true;
+    });
+
     if (loading) {
         return (
             <Layout>
@@ -165,10 +174,26 @@ export default function POApprovals() {
                     <h1 className="text-3xl font-bold tracking-tight">Annexure Approvals</h1>
                     <p className="text-muted-foreground">Review and act on Annexures awaiting approval.</p>
                 </div>
-
+                <div className="flex items-center gap-4 mb-2">
+                    <span className="font-medium">Filter:</span>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="pending_approval">Pending</SelectItem>
+                            <SelectItem value="approved">Approved</SelectItem>
+                            <SelectItem value="rejected">Rejected</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
                 <Card className="border-slate-200 shadow-sm">
                     <CardHeader className="bg-slate-50/50 border-b">
-                        <CardTitle className="text-lg font-semibold">Pending Requests ({approvals.length})</CardTitle>
+                        <CardTitle className="text-lg font-semibold">
+                            {statusFilter === "pending_approval" && `Pending Requests (${filteredApprovals.length})`}
+                            {statusFilter === "approved" && `Approved Requests (${filteredApprovals.length})`}
+                            {statusFilter === "rejected" && `Rejected Requests (${filteredApprovals.length})`}
+                        </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
                         <Table>
@@ -183,14 +208,16 @@ export default function POApprovals() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {approvals.length === 0 ? (
+                                {filteredApprovals.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={6} className="text-center py-12 text-muted-foreground italic">
-                                            No pending Annexure approvals.
+                                            {statusFilter === "pending_approval" && "No pending Annexure approvals."}
+                                            {statusFilter === "approved" && "No approved Annexure approvals."}
+                                            {statusFilter === "rejected" && "No rejected Annexure approvals."}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    approvals.map((item) => (
+                                    filteredApprovals.map((item) => (
                                         <TableRow key={item.id} className="hover:bg-slate-50/50">
                                             <TableCell className="font-bold text-primary">
                                                 {item.po_number}
