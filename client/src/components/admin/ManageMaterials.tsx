@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Layout } from "@/components/layout/Layout";
 import {
   Card,
@@ -72,6 +72,7 @@ export default function ManageMaterials() {
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const [entriesList, setEntriesList] = useState<any[]>([]);
 
@@ -199,7 +200,7 @@ export default function ManageMaterials() {
         const data = await response.json();
         const loadedSubs = data.subcategories || [];
         setSubcategories(loadedSubs);
-        
+
         // If we had an intended subcategory, check if it's in the loaded list (case-insensitive)
         if (intendedSubcategory) {
           const match = loadedSubs.find((s: string) => s.toLowerCase() === intendedSubcategory.toLowerCase());
@@ -340,7 +341,7 @@ export default function ManageMaterials() {
           setFormData((prev) => {
             const rawCat = best.material.category || (best.material as any).category_name || (best.material as any).Category || (best.material as any).categoryName || prev.category || "";
             const rawSub = best.material.subcategory || (best.material as any).subCategory || (best.material as any).subcategory_name || (best.material as any).Subcategory || (best.material as any).subcategoryName || prev.subcategory || "";
-            
+
             const matchedCat = categories.find(c => c.toLowerCase() === rawCat.toLowerCase()) || rawCat;
             if (rawSub) setIntendedSubcategory(rawSub);
 
@@ -398,7 +399,7 @@ export default function ManageMaterials() {
           setFormData((prev) => {
             const rawCat = data.material.category || (data.material as any).category_name || (data.material as any).Category || (data.material as any).categoryName || prev.category || "";
             const rawSub = data.material.subcategory || (data.material as any).subCategory || (data.material as any).subcategory_name || (data.material as any).Subcategory || (data.material as any).subcategoryName || prev.subcategory || "";
-            
+
             const matchedCat = categories.find(c => c.toLowerCase() === rawCat.toLowerCase()) || rawCat;
             if (rawSub) setIntendedSubcategory(rawSub);
 
@@ -456,6 +457,7 @@ export default function ManageMaterials() {
 
   const handleSubmitMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     if (!selectedTemplate || !selectedShop) {
       toast({
@@ -493,6 +495,7 @@ export default function ManageMaterials() {
     }
 
     setSubmitting(true);
+    submittingRef.current = true;
     try {
       const token = localStorage.getItem("authToken");
       const headers: Record<string, string> = {
@@ -537,6 +540,7 @@ export default function ManageMaterials() {
       });
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 

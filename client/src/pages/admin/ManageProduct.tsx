@@ -1403,14 +1403,14 @@ export default function ManageProduct() {
                                                                         <span className="font-bold text-slate-900 group-hover:text-primary transition-colors">{material.name}</span>
                                                                         {isSelected && <Check className="h-3 w-3 text-primary animate-in zoom-in" />}
                                                                     </div>
-                                                                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-blue-600 font-medium uppercase tracking-tight">
-                                                                        <span>{material.unit}</span><span>•</span>
-                                                                        <span className="truncate max-w-[120px]">{material.shop_name || "Multiple Vendors"}</span><span>•</span>
-                                                                        <span className="font-mono tracking-tighter">Code: {material.code || material.id?.slice(0, 8)}</span><span>•</span>
-                                                                        <span className="font-mono tracking-tighter">brand: {material.brandName || material.brand_name || '-'}</span><span>•</span>
-                                                                        <span className="font-mono tracking-tighter">model: {material.modelNumber || material.model_number || '-'}</span>
-                                                                        {material.hsn_code && <span className="bg-amber-50 text-amber-700 px-1 rounded-sm ml-1 text-[9px]">HSN: {material.hsn_code}</span>}
-                                                                        {material.sac_code && <span className="bg-blue-50 text-blue-700 px-1 rounded-sm ml-1 text-[9px]">SAC: {material.sac_code}</span>}
+                                                                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-tight">
+                                                                        <span className="text-slate-400 font-semibold">Unit:</span><span className="text-blue-600 font-bold">{material.unit}</span><span className="text-slate-300">•</span>
+                                                                        <span className="text-slate-400 font-semibold">Shop:</span><span className="text-blue-600 font-bold truncate max-w-[120px]">{material.shop_name || "Multiple Vendors"}</span><span className="text-slate-300">•</span>
+                                                                        <span className="text-slate-400 font-semibold">Code:</span><span className="text-blue-600 font-bold font-mono">{material.code || material.id?.slice(0, 8)}</span><span className="text-slate-300">•</span>
+                                                                        <span className="text-slate-400 font-semibold">Brand:</span><span className="text-violet-600 font-bold">{material.brandName || material.brand_name || (material as any).brandname || '-'}</span><span className="text-slate-300">•</span>
+                                                                        <span className="text-slate-400 font-semibold">Model:</span><span className="text-emerald-600 font-bold">{material.modelNumber || material.model_number || (material as any).modelnumber || '-'}</span>
+                                                                        {material.hsn_code && <><span className="text-slate-300">•</span><span className="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200 text-[9px] font-bold">HSN: {material.hsn_code}</span></>}
+                                                                        {material.sac_code && <><span className="text-slate-300">•</span><span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 text-[9px] font-bold">SAC: {material.sac_code}</span></>}
                                                                     </div>
                                                                     <div className={`text-[10px] flex items-center gap-1 font-medium mt-1 ${!material.created_at ? 'text-muted-foreground' :
                                                                         differenceInDays(new Date(), new Date(material.created_at)) > 90 ? 'text-amber-600 bg-amber-50 px-1 py-0.5 rounded-sm inline-flex w-fit border border-amber-200' : 'text-green-600'
@@ -1461,8 +1461,15 @@ export default function ManageProduct() {
                                                                     <Badge variant="outline" className="text-[9px] h-4 px-1 bg-blue-50/50 text-blue-600 font-bold border-blue-100">{material.unit}</Badge>
                                                                     <span className="text-[10px] text-muted-foreground font-medium truncate">{material.shop_name}</span>
                                                                 </div>
-                                                                <div className="text-[10px] text-blue-600 font-medium">
-                                                                    {material.code || material.id?.slice(0, 8)} • brand: {material.brandName || material.brand_name || '-'} • model: {material.modelNumber || material.model_number || '-'}
+                                                                <div className="flex flex-wrap items-center gap-1 text-[10px] mt-0.5">
+                                                                    <span className="text-slate-400 font-semibold uppercase">Code:</span>
+                                                                    <span className="text-blue-600 font-bold font-mono">{material.code || material.id?.slice(0, 8)}</span>
+                                                                    <span className="text-slate-300">•</span>
+                                                                    <span className="text-slate-400 font-semibold uppercase">Brand:</span>
+                                                                    <span className="text-violet-600 font-bold">{material.brandName || material.brand_name || (material as any).brandname || '-'}</span>
+                                                                    <span className="text-slate-300">•</span>
+                                                                    <span className="text-slate-400 font-semibold uppercase">Model:</span>
+                                                                    <span className="text-emerald-600 font-bold">{material.modelNumber || material.model_number || (material as any).modelnumber || '-'}</span>
                                                                 </div>
                                                                 <div className={`text-[9px] flex items-center gap-1 font-medium mt-1 ${!material.created_at ? 'text-muted-foreground' :
                                                                     differenceInDays(new Date(), new Date(material.created_at)) > 90 ? 'text-amber-600 bg-amber-50 px-1 py-0.5 rounded-sm inline-flex w-fit border border-amber-200' : 'text-green-600'

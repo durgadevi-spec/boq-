@@ -605,7 +605,7 @@ export default function GeneratePo() {
 
   const handleGeneratePO = async () => {
     if (!selectedVersionId || isGeneratingPO) return;
-    
+
     setIsGeneratingPO(true);
     try {
       // 1. Check if already generated
@@ -625,10 +625,10 @@ export default function GeneratePo() {
       const res = await apiFetch("/api/purchase-orders/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          projectId: selectedProjectId, 
+        body: JSON.stringify({
+          projectId: selectedProjectId,
           versionId: selectedVersionId,
-          versionNumber: selectedVersion?.version_number 
+          versionNumber: selectedVersion?.version_number
         }),
       });
       if (res.ok) {
@@ -658,7 +658,7 @@ export default function GeneratePo() {
       .then(async d => {
         if (!d) return;
         let projectList = d.projects || [];
-        
+
         if (isPurchaseTeam) {
           // For purchase team, only show projects that have at least one approved version
           const filtered = [];
@@ -674,7 +674,7 @@ export default function GeneratePo() {
           }
           projectList = filtered;
         }
-        
+
         setProjects(projectList);
       })
       .catch(console.error)
@@ -689,9 +689,9 @@ export default function GeneratePo() {
       .then(data => {
         if (!data) return;
         let list: BOMVersion[] = data.versions || [];
-        
+
         if (isPurchaseTeam) {
-            list = list.filter(v => v.status === 'approved');
+          list = list.filter(v => v.status === 'approved');
         }
 
         setVersions(list);
@@ -1020,22 +1020,22 @@ export default function GeneratePo() {
         configBasis = { requiredUnitType: "Sqft" as UnitType, baseRequiredQty: 1, wastagePctDefault: 0 };
         materialLines = pendingItems.map(i => ({ materialId: i.id || Math.random().toString(), materialName: i.title || "Item", unit: i.unit || "nos", baseQty: i.qty || 1, supplyRate: i.supply_rate || 0, installRate: i.install_rate || 0 }));
       }
-      const tableData = { 
-        product_name: selectedProduct.name, 
-        product_id: selectedProduct.id, 
-        category: selectedProduct.category, 
-        subcategory: selectedProduct.subcategory, 
-        hsn_sac_type: selectedProduct.tax_code_type || null, 
-        hsn_sac_code: selectedProduct.tax_code_value || null, 
-        hsn_code: selectedProduct.hsn_code || null, 
-        sac_code: selectedProduct.sac_code || null, 
-        targetRequiredQty, 
+      const tableData = {
+        product_name: selectedProduct.name,
+        product_id: selectedProduct.id,
+        category: selectedProduct.category,
+        subcategory: selectedProduct.subcategory,
+        hsn_sac_type: selectedProduct.tax_code_type || null,
+        hsn_sac_code: selectedProduct.tax_code_value || null,
+        hsn_code: selectedProduct.hsn_code || null,
+        sac_code: selectedProduct.sac_code || null,
+        targetRequiredQty,
         unit: configBasis.requiredUnitType,
-        configBasis, 
-        materialLines, 
-        step11_items: pendingItems, 
-        finalize_description: pendingItems[0]?.description || "", 
-        created_at: new Date().toISOString() 
+        configBasis,
+        materialLines,
+        step11_items: pendingItems,
+        finalize_description: pendingItems[0]?.description || "",
+        created_at: new Date().toISOString()
       };
       const res = await apiFetch("/api/boq-items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: selectedProjectId, version_id: selectedVersionId, estimator: getEstimatorTypeFromProduct(selectedProduct) || "General", table_data: tableData }) });
       if (!res.ok) throw new Error("Failed to save");
@@ -1486,7 +1486,7 @@ export default function GeneratePo() {
                         <SelectValue placeholder={projects.length === 0 ? "No projects" : "Select project"} />
                       </SelectTrigger>
                       <SelectContent className="max-h-60 overflow-auto">
-      {projects.map((p: Project) => <SelectItem value={p.id} key={p.id}>{p.name}</SelectItem>)}
+                        {projects.map((p: Project) => <SelectItem value={p.id} key={p.id}>{p.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1660,10 +1660,10 @@ export default function GeneratePo() {
                         handleDeleteRow={handleDeleteRow} handleFinalizeProduct={handleFinalizeProduct}
                         handleAddItem={handleAddItem} loadBoqItemsAndEdits={loadBoqItemsAndEdits} setBoqItems={setBoqItems}
                         checkBudgetEarly={checkBudgetEarly}
-                    handleSaveProject={handleSaveProject}
-                    isPurchaseTeam={isPurchaseTeam}
-                  />
-                ))}
+                        handleSaveProject={handleSaveProject}
+                        isPurchaseTeam={isPurchaseTeam}
+                      />
+                    ))}
                   </div>
                 }
               </CardContent>

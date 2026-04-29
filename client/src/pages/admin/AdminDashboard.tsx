@@ -66,6 +66,7 @@ import {
   PackageOpen,
   Send,
   CheckCheck,
+  Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { postJSON, apiFetch } from "@/lib/api";
@@ -186,6 +187,13 @@ export default function AdminDashboard() {
   const [isReplying, setIsReplying] = useState<string | null>(null);
   const adminChatScrollRef = useRef<HTMLDivElement>(null);
 
+  // Duplicate detection state
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<any[]>([]);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
+  const [selectedDuplicateGroups, setSelectedDuplicateGroups] = useState<Set<number>>(new Set());
+
   // Local managed copies so admin can edit/delete/disable items in UI
   const [localMaterials, setLocalMaterials] = useState(() => [] as Array<any>);
   const [localShops, setLocalShops] = useState(() => [] as Array<any>);
@@ -290,6 +298,61 @@ export default function AdminDashboard() {
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingCategoryValue, setEditingCategoryValue] = useState("");
   const [subCategories, setSubCategories] = useState<any[]>([]);
+
+  const handleCheckDuplicates = async () => {
+    setCheckingDuplicates(true);
+    try {
+      const response = await apiFetch("/api/admin/duplicates/materials");
+      if (!response.ok) throw new Error("Failed to fetch duplicates");
+      const data = await response.json();
+      const groups = data.duplicates || [];
+      setDuplicateGroups(groups);
+      setSelectedDuplicateGroups(new Set(groups.map((_: any, i: number) => i))); // Select all by default
+      setShowDuplicateDialog(true);
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to check for duplicates",
+        variant: "destructive",
+      });
+    } finally {
+      setCheckingDuplicates(false);
+    }
+  };
+
+  const handleCleanupDuplicates = async () => {
+    if (duplicateGroups.length === 0 || selectedDuplicateGroups.size === 0) return;
+    setCleaningDuplicates(true);
+    try {
+      const groupsToCleanup = duplicateGroups.filter((_, i) => selectedDuplicateGroups.has(i));
+      const response = await apiFetch("/api/admin/duplicates/materials/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groups: groupsToCleanup }),
+      });
+
+      if (!response.ok) throw new Error("Cleanup failed");
+      const data = await response.json();
+
+      toast({
+        title: "Success",
+        description: data.message,
+      });
+      setShowDuplicateDialog(false);
+      setDuplicateGroups([]);
+      if (typeof refreshMaterials === 'function') {
+        refreshMaterials();
+      }
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to cleanup duplicates",
+        variant: "destructive",
+      });
+    } finally {
+      setCleaningDuplicates(false);
+    }
+  };
 
   // Load categories from API on mount
   useEffect(() => {
@@ -2028,14 +2091,26 @@ export default function AdminDashboard() {
                         </CardTitle>
                         <CardDescription className="text-sm flex items-center justify-between">
                           <span>Comprehensive material registry</span>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={(e) => { e.stopPropagation(); handleExportMaterials(); }}
-                            className="h-7 text-xs bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 font-bold"
-                          >
-                            <Layers className="h-3 w-3 mr-1" /> Download Materials Excel
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={(e) => { e.stopPropagation(); handleCheckDuplicates(); }}
+                              disabled={checkingDuplicates}
+                              className="h-7 text-xs bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 font-bold"
+                            >
+                              {checkingDuplicates ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
+                              Check for Duplicates
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={(e) => { e.stopPropagation(); handleExportMaterials(); }}
+                              className="h-7 text-xs bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 font-bold"
+                            >
+                              <Layers className="h-3 w-3 mr-1" /> Download Materials Excel
+                            </Button>
+                          </div>
                         </CardDescription>
                       </div>
                     </div>
@@ -4929,6 +5004,103 @@ export default function AdminDashboard() {
           {selectedPreviewImage && (
             <img src={selectedPreviewImage} alt="Full Preview" className="w-full h-auto max-h-[90vh] object-contain" />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="w-5 h-5" />
+              Duplicate Materials Detected
+            </DialogTitle>
+            <DialogDescription className="flex items-center justify-between">
+              <span>The following groups have exactly the same fields. The oldest entry will be kept.</span>
+              {duplicateGroups.length > 0 && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Checkbox 
+                    id="select-all-duplicates"
+                    checked={selectedDuplicateGroups.size === duplicateGroups.length}
+                    onCheckedChange={(checked) => {
+                      if (checked) setSelectedDuplicateGroups(new Set(duplicateGroups.map((_, i) => i)));
+                      else setSelectedDuplicateGroups(new Set());
+                    }}
+                  />
+                  <Label htmlFor="select-all-duplicates" className="cursor-pointer">Select All</Label>
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto my-4 border rounded-md">
+            {duplicateGroups.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">
+                <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-2" />
+                <p className="font-bold">No duplicates found!</p>
+                <p className="text-sm">Your material library is clean.</p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {duplicateGroups.map((group, idx) => (
+                  <div key={idx} className={cn(
+                    "p-4 bg-white hover:bg-slate-50 flex gap-3",
+                    !selectedDuplicateGroups.has(idx) && "opacity-60"
+                  )}>
+                    <div className="pt-1">
+                      <Checkbox 
+                        checked={selectedDuplicateGroups.has(idx)}
+                        onCheckedChange={(checked) => {
+                          const next = new Set(selectedDuplicateGroups);
+                          if (checked) next.add(idx);
+                          else next.delete(idx);
+                          setSelectedDuplicateGroups(next);
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="font-bold text-slate-800 text-sm">{group.name}</div>
+                        <div className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-bold">
+                          {group.duplicate_count} Copies Found
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                        <div><span className="font-semibold text-slate-700">Shop:</span> {shops.find(s => s.id === group.shop_id)?.name || group.shop_id}</div>
+                        <div><span className="font-semibold text-slate-700">Rate:</span> ₹{group.rate} / {group.unit}</div>
+                        <div><span className="font-semibold text-slate-700">Brand:</span> {group.brandname || 'None'}</div>
+                        <div><span className="font-semibold text-slate-700">Model:</span> {group.modelnumber || 'None'}</div>
+                        <div className="col-span-2 flex items-center gap-2 mt-1">
+                          <span className="italic">First entry: {new Date(group.creation_dates[0]).toLocaleDateString()}</span>
+                          <span className="text-[10px] bg-green-50 text-green-700 px-1.5 rounded border border-green-100 font-medium">This record will be kept</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowDuplicateDialog(false)}>
+              Close
+            </Button>
+            {duplicateGroups.length > 0 && (
+              <Button
+                variant="destructive"
+                className="gap-2"
+                onClick={handleCleanupDuplicates}
+                disabled={cleaningDuplicates || selectedDuplicateGroups.size === 0}
+              >
+                {cleaningDuplicates ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Delete {duplicateGroups.filter((_, i) => selectedDuplicateGroups.has(i)).reduce((acc, g) => acc + (g.duplicate_count - 1), 0)} Duplicates
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </Layout>

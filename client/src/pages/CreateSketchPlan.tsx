@@ -12,8 +12,9 @@ import { Reorder, useDragControls } from "framer-motion";
 import { SketchPad } from "@/components/SketchPad";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import Draggable from "react-draggable";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -208,10 +209,10 @@ const PhotoColumn = ({
 
 // Row Component for Drag and Drop
 const SketchPlanRow = ({
-  item, idx, itemsLength, updateItem, removeItem, moveItemToPosition, selectMaterial,
+  item, idx, itemsLength, updateItem, setOpenNotesIdx, removeItem, moveItemToPosition, selectMaterial,
   searchResults, searching, loadMaterials, materialSearch, setMaterialSearch,
   openPopoverIdx, setOpenPopoverIdx, renameRowImage, removeRowImage,
-  handleRowImageUpload, isLocked, isCompact, setPreviewImage,
+  handleRowImageUpload, isLocked, isFiltering, isCompact, setPreviewImage,
   setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen,
   isSelected, toggleSelect, userRole, onImageDragStart, onImageDrop,
   addDimension, removeDimension, updateDimension, cloneItem, categories
@@ -219,6 +220,7 @@ const SketchPlanRow = ({
   const [itemSearchTab, setItemSearchTab] = useState<"all" | "material" | "product">("all");
   const dragControls = useDragControls();
   const isSupplier = userRole === "supplier";
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const dims = item.dimensions?.length ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
 
@@ -227,7 +229,7 @@ const SketchPlanRow = ({
       as="tr"
       key={item.id}
       value={item}
-      dragListener={!isLocked}
+      dragListener={!isLocked && !isFiltering}
       dragControls={dragControls}
       className="border-b hover:bg-slate-50/30 transition-colors bg-white"
     >
@@ -428,7 +430,7 @@ const SketchPlanRow = ({
         </Popover>
       </td>
       <td className={cn("px-2", isCompact ? "py-0 w-[120px] min-w-[120px] max-w-[120px]" : "py-2 w-[160px] min-w-[160px] max-w-[160px]")}>
-        <Dialog open={openPopoverIdx === idx} onOpenChange={(open) => {
+        <Dialog modal={false} open={openPopoverIdx === idx} onOpenChange={(open) => {
           if (open) {
             setOpenPopoverIdx(idx);
             setMaterialSearch("");
@@ -447,94 +449,102 @@ const SketchPlanRow = ({
               <Search className={cn("ml-auto opacity-50", isCompact ? "h-2 w-2" : "h-3 w-3")} />
             </Button>
           </DialogTrigger>
-          <DialogContent className="p-0 sm:max-w-[500px]">
-            <DialogHeader className="p-4 border-b">
-              <DialogTitle>Select Item for Row #{idx + 1}</DialogTitle>
-            </DialogHeader>
-            <Command shouldFilter={false}>
-              <CommandInput
-                placeholder="Search materials, products..."
-                value={materialSearch}
-                onValueChange={setMaterialSearch}
-                className="h-10"
-              />
-              <div className="flex border-b">
-                <button
-                  onClick={() => setItemSearchTab("all")}
-                  className={cn(
-                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                    itemSearchTab === "all" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                  )}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setItemSearchTab("material")}
-                  className={cn(
-                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                    itemSearchTab === "material" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                  )}
-                >
-                  Materials
-                </button>
-                <button
-                  onClick={() => setItemSearchTab("product")}
-                  className={cn(
-                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                    itemSearchTab === "product" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                  )}
-                >
-                  Products
-                </button>
+          <DialogContent hideOverlay className="p-0 sm:max-w-[500px] bg-transparent border-none shadow-none [&>button]:hidden pointer-events-none">
+            <Draggable nodeRef={dialogRef} handle=".drag-handle">
+              <div ref={dialogRef} className="bg-white border shadow-lg sm:rounded-lg pointer-events-auto flex flex-col w-full relative">
+                <DialogHeader className="p-4 border-b drag-handle cursor-move bg-slate-50 hover:bg-slate-100 transition-colors select-none rounded-t-lg flex flex-row items-center justify-between">
+                  <DialogTitle>Select Item for Row #{idx + 1}</DialogTitle>
+                  <DialogClose className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Close</span>
+                  </DialogClose>
+                </DialogHeader>
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Search materials, products..."
+                    value={materialSearch}
+                    onValueChange={setMaterialSearch}
+                    className="h-10"
+                  />
+                  <div className="flex border-b">
+                    <button
+                      onClick={() => setItemSearchTab("all")}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                        itemSearchTab === "all" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                      )}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setItemSearchTab("material")}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                        itemSearchTab === "material" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                      )}
+                    >
+                      Materials
+                    </button>
+                    <button
+                      onClick={() => setItemSearchTab("product")}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                        itemSearchTab === "product" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                      )}
+                    >
+                      Products
+                    </button>
+                  </div>
+                  <CommandList className="max-h-[280px]">
+                    {searching && <CommandEmpty>Loading...</CommandEmpty>}
+                    {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
+                    {!searching && searchResults.length > 0 && (
+                      <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => (itemSearchTab === 'all' && m.type !== 'Template') || (itemSearchTab === 'material' && m.type === 'Material') || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
+                        {searchResults
+                          .filter((m: any) => {
+                            if (itemSearchTab === "all") return m.type !== "Template";
+                            if (itemSearchTab === "material") return m.type === "Material";
+                            if (itemSearchTab === "product") return m.type === "Product";
+                            return true;
+                          })
+                          .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
+                          .map((m: any) => (
+                            <CommandItem
+                              key={`${m.type}-${m.id}`}
+                              onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
+                              className="cursor-pointer"
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-sm">{m.name}</span>
+                                  <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
+                                </div>
+                                <div className="flex gap-2 text-[10px] text-slate-500">
+                                  {m.code && <span>Code: {m.code}</span>}
+                                  {m.category && <span>Category: {m.category}</span>}
+                                </div>
+                              </div>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+                <div className="p-3 border-t bg-slate-50 flex flex-col gap-2">
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Custom Item</p>
+                  <Input
+                    placeholder="Or type a custom name and press Enter..."
+                    className="h-10 text-sm"
+                    onChange={(e) => updateItem(idx, "item_name", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        setOpenPopoverIdx(null);
+                      }
+                    }}
+                  />
+                </div>
               </div>
-              <CommandList className="max-h-[280px]">
-                {searching && <CommandEmpty>Loading...</CommandEmpty>}
-                {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
-                {!searching && searchResults.length > 0 && (
-                  <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => (itemSearchTab === 'all' && m.type !== 'Template') || (itemSearchTab === 'material' && m.type === 'Material') || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
-                    {searchResults
-                      .filter((m: any) => {
-                        if (itemSearchTab === "all") return m.type !== "Template";
-                        if (itemSearchTab === "material") return m.type === "Material";
-                        if (itemSearchTab === "product") return m.type === "Product";
-                        return true;
-                      })
-                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
-                      .map((m: any) => (
-                        <CommandItem
-                          key={`${m.type}-${m.id}`}
-                          onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
-                          className="cursor-pointer"
-                        >
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-sm">{m.name}</span>
-                              <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
-                            </div>
-                            <div className="flex gap-2 text-[10px] text-slate-500">
-                              {m.code && <span>Code: {m.code}</span>}
-                              {m.category && <span>Category: {m.category}</span>}
-                            </div>
-                          </div>
-                        </CommandItem>
-                      ))}
-                  </CommandGroup>
-                )}
-              </CommandList>
-            </Command>
-            <div className="p-3 border-t bg-slate-50 flex flex-col gap-2">
-              <p className="text-[10px] uppercase font-bold text-slate-400">Custom Item</p>
-              <Input
-                placeholder="Or type a custom name and press Enter..."
-                className="h-10 text-sm"
-                onChange={(e) => updateItem(idx, "item_name", e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setOpenPopoverIdx(null);
-                  }
-                }}
-              />
-            </div>
+            </Draggable>
           </DialogContent>
         </Dialog>
       </td>
@@ -790,8 +800,10 @@ export default function CreateSketchPlan() {
   const [sketchInitialData, setSketchInitialData] = useState<string | undefined>(undefined);
   const lastSketchItemIdxRef = useRef<number | null>(null); // To track which image we are "continously" auto-saving
   const lastSketchPlanImgIdxRef = useRef<number | null>(null);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [sketchDialogOpen, setSketchDialogOpen] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const lastSavedRef = useRef<string>("");
+  const isSavingRef = useRef<boolean>(false);
 
   // Lock & Approval State
   const [isLocked, setIsLocked] = useState(false);
@@ -804,13 +816,18 @@ export default function CreateSketchPlan() {
   const userRole = user?.role || "user";
   const isSupplier = userRole === "supplier";
   const isAdmin = userRole === "admin";
-  const lastSavedRef = useRef<string>("");
 
   // Versioning State
   const [siblingVersions, setSiblingVersions] = useState<any[]>([]);
   const [currentVersionNumber, setCurrentVersionNumber] = useState<number>(1);
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   const [creatingVersion, setCreatingVersion] = useState(false);
+
+  // Duplicate Check State
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<any[][]>([]);
+  const [selectedDuplicateIndices, setSelectedDuplicateIndices] = useState<Set<number>>(new Set());
+
 
   // Memoized Sketch Editor Handlers
   const handleSketchAutoSave = useCallback((dataUrl: string) => {
@@ -848,8 +865,6 @@ export default function CreateSketchPlan() {
         });
       }
     }
-    setAutoSaveStatus("saving");
-    setTimeout(() => setAutoSaveStatus("saved"), 1000);
   }, [sketchTarget, items.length]);
 
   const handleSketchSave = useCallback((dataUrl: string) => {
@@ -1109,29 +1124,48 @@ export default function CreateSketchPlan() {
             setRequestReason(p.request_reason || "");
 
             // Map items and their images
-            const mappedItems = data.items.map((it: any) => {
-              const itemImages = data.images.filter((img: any) => img.item_id === it.id);
-              const preImages: PlanImage[] = [];
-              const postImages: PlanImage[] = [];
+            // Map items and their images with unique ID filtering
+            const seenIds = new Set();
+            const mappedItems = data.items
+              .filter((it: any) => {
+                if (!it.id || seenIds.has(it.id)) return false;
+                seenIds.add(it.id);
+                return true;
+              })
+              .map((it: any) => {
+                const itemImages = data.images.filter((img: any) => img.item_id === it.id);
+                const preImages: PlanImage[] = [];
+                const postImages: PlanImage[] = [];
 
-              itemImages.forEach((img: any) => {
-                const cleanedName = (img.image_name || img.name || "").replace(/^(PRE_|POST_)/, "");
-                const mappedImg = {
-                  id: img.id,
-                  url: img.image_url,
-                  name: cleanedName || `Photo ${img.id.split('-').pop()}`
-                };
+                itemImages.forEach((img: any) => {
+                  const cleanedName = (img.image_name || img.name || "").replace(/^(PRE_|POST_)/, "");
+                  const mappedImg = {
+                    id: img.id,
+                    url: img.image_url,
+                    name: cleanedName || `Photo ${img.id.split('-').pop()}`
+                  };
 
-                if ((img.image_name || img.name || "").startsWith("POST_")) {
-                  postImages.push(mappedImg);
-                } else {
-                  preImages.push(mappedImg);
-                }
+                  if ((img.image_name || img.name || "").startsWith("POST_")) {
+                    postImages.push(mappedImg);
+                  } else {
+                    preImages.push(mappedImg);
+                  }
+                });
+
+                return { ...it, preImages, postImages, images: [] };
               });
 
-              return { ...it, preImages, postImages, images: [] };
-            });
-            setItems(mappedItems.length > 0 ? mappedItems : items);
+            if (mappedItems.length > 0) {
+              setItems(mappedItems);
+            } else {
+              // If no items, provide exactly one fresh empty row
+              setItems([{
+                id: `ski-${Date.now()}`,
+                item_name: "", description: "", length: "", width: "", height: "", qty: "1",
+                unit: "Nos", dimension_unit: "feet", category: "", remarks: "",
+                preImages: [], postImages: [], images: []
+              }]);
+            }
 
             // Plan-level images
             const plImages = data.images
@@ -1585,29 +1619,72 @@ export default function CreateSketchPlan() {
     setSearchResults([]);
   };
 
-  const performSave = async (showToast: boolean = true) => {
-    if (isLocked) return;
-    if (!name.trim()) {
-      if (showToast) {
-        toast({
-          title: "Validation Error",
-          description: "Please enter a Plan Name before saving.",
-          variant: "destructive"
-        });
+  const findDuplicatesInCurrentPlan = () => {
+    const groups: Record<string, PlanItem[]> = {};
+    items.forEach(item => {
+      // Create a composite key for comparison
+      const dimsStr = JSON.stringify(item.dimensions?.map(d => ({ l: d.length, w: d.width, h: d.height, note: d.note })) || []);
+      const key = `${item.item_name || ''}|${item.description || ''}|${item.qty || ''}|${item.unit || ''}|${item.category || ''}|${dimsStr}`;
+
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+    });
+
+    const duplicates = Object.values(groups).filter(group => group.length > 1);
+    setDuplicateGroups(duplicates);
+    setSelectedDuplicateIndices(new Set(duplicates.map((_, i) => i)));
+    setShowDuplicateDialog(true);
+  };
+
+  const cleanUpDuplicates = () => {
+    // Keep the first item of each duplicate group, delete the rest
+    const idsToRemove = new Set<string>();
+    duplicateGroups.forEach((group, idx) => {
+      if (selectedDuplicateIndices.has(idx)) {
+        // Keep group[0], remove from group[1] to end
+        for (let i = 1; i < group.length; i++) {
+          idsToRemove.add(group[i].id);
+        }
       }
+    });
+
+    if (idsToRemove.size > 0) {
+      const newItems = items.filter(item => !idsToRemove.has(item.id));
+      setItems(newItems);
+      toast({ title: "Duplicates Cleaned", description: `Removed ${idsToRemove.size} redundant rows.` });
+      setDuplicateGroups([]);
+      setSelectedDuplicateIndices(new Set());
+      setShowDuplicateDialog(false);
+      if (sortBy !== "none") setSortBy("none");
+      // Trigger a save so the user doesn't lose the cleanup
+      // IMPORTANT: Pass newItems directly to avoid stale closure issues
+      performSave(false, newItems);
+    } else {
+      setShowDuplicateDialog(false);
+    }
+  };
+
+
+  const performSave = async (showToast: boolean = true, itemsToSave?: PlanItem[]) => {
+    if (isSavingRef.current) return;
+
+    if (!name.trim()) {
+      if (showToast) toast({ title: "Validation Error", description: "Please enter a Plan Name before saving.", variant: "destructive" });
       return;
     }
 
+    isSavingRef.current = true;
     if (!showToast) setAutoSaveStatus("saving");
     else setSaving(true);
 
     try {
+      const payloadItems = itemsToSave || items;
       const payload = {
         name,
         project_id: projectId === "none" ? null : projectId,
         location: locationStr,
         plan_date: planDate,
-        items: items.map(it => {
+        items: payloadItems.map(it => {
           const flattenedImages = [
             ...(it.preImages || []).map(img => ({ ...img, name: `PRE_${img.name}` })),
             ...(it.postImages || []).map(img => ({ ...img, name: `POST_${img.name}` }))
@@ -1627,6 +1704,7 @@ export default function CreateSketchPlan() {
       if (jsonStr === lastSavedRef.current) {
         if (!showToast) {
           setAutoSaveStatus("saved");
+          setTimeout(() => setAutoSaveStatus("idle"), 2000);
           return;
         }
         // If it's a manual save and already identical, just treat as success
@@ -1647,8 +1725,6 @@ export default function CreateSketchPlan() {
 
         if (!currentId && data.id) {
           setCurrentId(data.id);
-          // Update URL without full reload if possible, or just let it stay as is for now
-          // For now, let's just update common state
         }
 
         if (showToast) {
@@ -1656,24 +1732,26 @@ export default function CreateSketchPlan() {
           setLocation("/sketch-plans");
         } else {
           setAutoSaveStatus("saved");
+          setTimeout(() => setAutoSaveStatus("idle"), 2000);
         }
       } else {
         const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
         if (showToast) {
           toast({ title: "Error", description: errorData.message || "Failed to save plan", variant: "destructive" });
         } else {
-          setAutoSaveStatus("error");
+          setAutoSaveStatus("idle");
         }
       }
     } catch (err) {
-      console.error("Save error", err);
+      console.error("Save error:", err);
       if (showToast) {
         toast({ title: "Error", description: "Failed to save plan", variant: "destructive" });
       } else {
-        setAutoSaveStatus("error");
+        setAutoSaveStatus("idle");
       }
     } finally {
       setSaving(false);
+      isSavingRef.current = false;
     }
   };
 
@@ -1681,14 +1759,14 @@ export default function CreateSketchPlan() {
 
   // Debounced auto-save
   useEffect(() => {
-    if (isLocked || !name.trim()) return;
+    if (isLocked) return;
+    if (!name.trim() || items.length === 0) return;
 
-    // Don't auto-save if we are already in the middle of a manual save
-    if (saving) return;
+    if (saving || isSavingRef.current) return;
 
     const timer = setTimeout(() => {
       performSave(false);
-    }, 3000); // 3 second debounce for auto-save
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [name, projectId, locationStr, planDate, items, planImages, isLocked]);
@@ -2267,6 +2345,11 @@ export default function CreateSketchPlan() {
                 <Layers className="w-3 h-3" /> Save as Template
               </Button>
             )}
+            {userRole !== "supplier" && (
+              <Button variant="outline" size="sm" onClick={findDuplicatesInCurrentPlan} className="gap-1.5 h-8 text-[10px] border-amber-200 text-amber-600 hover:bg-amber-50">
+                <Copy className="w-3 h-3" /> Check Duplicates
+              </Button>
+            )}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-md border border-slate-100 min-w-[140px] justify-center transition-all">
               {autoSaveStatus === "saving" && (
                 <>
@@ -2489,7 +2572,7 @@ export default function CreateSketchPlan() {
 
           {/* Enhanced Items Section */}
           {/* Project Items - Main Workspace */}
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-2">
+          <div className="sticky top-0 z-20 bg-white shadow-sm border-b border-slate-200 p-4 rounded-lg mb-4 flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-2 w-full md:w-auto flex-1">
               <div className="relative w-full max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -2634,7 +2717,8 @@ export default function CreateSketchPlan() {
                         item={item}
                         idx={items.indexOf(item)}
                         itemsLength={items.length}
-                        isLocked={isLocked || userRole === "supplier" || isFiltering}
+                        isLocked={isLocked || userRole === "supplier"}
+                        isFiltering={isFiltering}
                         isCompact={isCompact}
                         updateItem={updateItem}
                         removeItem={removeItem}
@@ -3326,6 +3410,70 @@ export default function CreateSketchPlan() {
             <Button onClick={confirmCategoryReplace} className="bg-amber-600 hover:bg-amber-700 text-white flex-1 sm:flex-none">
               Replace Category
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Checker Dialog */}
+      <Dialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+              Duplicate Rows Found
+            </DialogTitle>
+            <DialogDescription>
+              {duplicateGroups.length > 0
+                ? `Found ${duplicateGroups.length} groups of exact duplicate rows. Cleaning up will keep one instance and remove the rest.`
+                : "Great! No exact duplicates were found in your plan."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {duplicateGroups.length > 0 && (
+            <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+              {duplicateGroups.map((group, idx) => (
+                <div key={idx} className={`border rounded-md p-3 flex gap-3 transition-colors ${selectedDuplicateIndices.has(idx) ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-slate-50 opacity-70'}`}>
+                  <div className="pt-1">
+                    <Checkbox
+                      checked={selectedDuplicateIndices.has(idx)}
+                      onCheckedChange={(checked) => {
+                        const next = new Set(selectedDuplicateIndices);
+                        if (checked) next.add(idx);
+                        else next.delete(idx);
+                        setSelectedDuplicateIndices(next);
+                      }}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className={`font-bold text-sm ${selectedDuplicateIndices.has(idx) ? 'text-amber-800' : 'text-slate-700'}`}>{group[0].item_name || "Unnamed Item"}</h4>
+                        <p className={`text-xs ${selectedDuplicateIndices.has(idx) ? 'text-amber-600' : 'text-slate-500'}`}>Repeated <strong>{group.length} times</strong></p>
+                      </div>
+                      <Badge variant="outline" className="bg-white">Qty: {group[0].qty} {group[0].unit}</Badge>
+                    </div>
+                    {group[0].description && (
+                      <p className="text-xs text-slate-600 italic line-clamp-2 mt-1">"{group[0].description}"</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter className="mt-4 pt-4 border-t">
+            <Button variant="outline" onClick={() => setShowDuplicateDialog(false)}>
+              {duplicateGroups.length > 0 ? "Cancel" : "Close"}
+            </Button>
+            {duplicateGroups.length > 0 && (
+              <Button
+                onClick={cleanUpDuplicates}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={selectedDuplicateIndices.size === 0}
+              >
+                Clean Up {selectedDuplicateIndices.size === duplicateGroups.length ? "All" : "Selected"} Duplicates
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

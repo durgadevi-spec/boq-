@@ -130,10 +130,11 @@ export function computeBoq(
  * Helper: build a ConfigBasis from raw table_data (handles missing/old fields gracefully)
  */
 export function basisFromTableData(tableData: any): ConfigBasis {
+    const basis = tableData?.configBasis || tableData;
     return {
-        requiredUnitType: (tableData?.requiredUnitType as UnitType) || "Sqft",
-        baseRequiredQty: Number(tableData?.baseRequiredQty) || 1,
-        wastagePctDefault: Number(tableData?.wastagePctDefault) || 0,
+        requiredUnitType: (basis?.requiredUnitType as UnitType) || "Sqft",
+        baseRequiredQty: Number(basis?.baseRequiredQty) || 1,
+        wastagePctDefault: Number(basis?.wastagePctDefault) || 0,
     };
 }
 
@@ -142,7 +143,7 @@ export function basisFromTableData(tableData: any): ConfigBasis {
  * Falls back to step11_items for backward compatibility.
  */
 export function linesFromTableData(tableData: any): MaterialLine[] {
-    const lines = tableData?.lines;
+    const lines = tableData?.lines || tableData?.materialLines;
     if (Array.isArray(lines) && lines.length > 0) {
         return lines.map((l: any) => ({
             id: l.id || l.material_id,

@@ -33,6 +33,7 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import apiFetch from "@/lib/api";
 import { computeBoq } from "@/lib/boqCalc";
+import { useAuth } from "@/lib/auth-context";
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -66,8 +67,11 @@ import {
   Type,
   Mail,
   Download,
-  Save
+  Save,
+  RefreshCw,
+  BarChart3
 } from "lucide-react";
+import { BoqAnalysisDialog } from "@/components/BoqAnalysisDialog";
 
 /** Helper to generate Excel-style column names (A, B, C... Z, AA, AB...) */
 const getExcelColumnName = (n: number) => {
@@ -178,6 +182,7 @@ type BOQVersion = {
   project_name?: string;
   project_client?: string;
   project_location?: string;
+  is_disabled?: boolean;
 };
 
 type BOMItem = {
@@ -277,6 +282,8 @@ const DraggableHeaderCol = ({
       });
     }
 
+    const nextColsMap: any = {};
+    const nextValsMap: any = {};
     const updates = boqItems.map(item => {
       // 2. Update column definitions and dependent references
       const itemCols = [...(customColumns[item.id] || [])].map(c => {
@@ -306,11 +313,14 @@ const DraggableHeaderCol = ({
         itemValues[ri] = rowVals;
       });
 
-      setCustomColumns((prev: any) => ({ ...prev, [item.id]: itemCols }));
-      setCustomColumnValues((prev: any) => ({ ...prev, [item.id]: itemValues }));
+      nextColsMap[item.id] = itemCols;
+      nextValsMap[item.id] = itemValues;
 
       return saveItemLayout(item.id, itemCols, itemValues);
     });
+
+    setCustomColumns((prev: any) => ({ ...prev, ...nextColsMap }));
+    setCustomColumnValues((prev: any) => ({ ...prev, ...nextValsMap }));
 
     await Promise.all(updates);
     toast({ title: "Column Renamed", description: `"${oldName}" is now "${newName}"` });
@@ -474,10 +484,14 @@ export default function FinalizeBoq() {
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isFinanceTeam = user?.role === "finance_team";
   const dragControls = useDragControls();
   const [templates, setTemplates] = useState<BOQTemplate[]>([]);
   const [isSaveTemplateDialogOpen, setIsSaveTemplateDialogOpen] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState("");
+  const [showDisabledVersionsDialog, setShowDisabledVersionsDialog] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Delete Confirmation Dialog State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -523,6 +537,7 @@ export default function FinalizeBoq() {
   const [globalColSettings, setGlobalColSettings] = useState<{ [colName: string]: any }>({});
   const [roundOff, setRoundOff] = useState<boolean>(false);
   const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false);
+  const [isAnalysisDialogOpen, setIsAnalysisDialogOpen] = useState(false);
 
   const handleHideSelectedRows = async (hide: boolean) => {
     if (selectedProductIds.size === 0) return;
@@ -551,12 +566,19 @@ export default function FinalizeBoq() {
 
   // BOM versions: only show approved versions for selection
   const filteredBomVersions = React.useMemo(() => {
-    return bomVersions.filter(v => v.status === "approved");
+    return bomVersions.filter(v => v.status === "approved" && !v.is_disabled);
   }, [bomVersions]);
 
   // BOQ versions: show draft and approved so users can work on them
   const filteredBoqVersions = React.useMemo(() => {
-    return boqVersions.filter(v => v.status === "draft" || v.status === "approved" || v.status === "submitted");
+    return boqVersions.filter(v => 
+      v.status === "draft" || 
+      v.status === "approved" || 
+      v.status === "submitted" || 
+      v.status === "pending_approval" || 
+      v.status === "rejected" || 
+      v.status === "edit_requested"
+    );
   }, [boqVersions]);
 
   const activeVersionId = selectedBoqVersionId || selectedBomVersionId;
@@ -668,13 +690,15 @@ export default function FinalizeBoq() {
       return;
     }
 
+    const nextColsMap: any = {};
     const updates = boqItems.map(item => {
       const nextCols = (customColumns[item.id] || []).map(c =>
         c.name === colName ? { ...c, hideColumn: hide } : c
       );
-      setCustomColumns(prev => ({ ...prev, [item.id]: nextCols }));
+      nextColsMap[item.id] = nextCols;
       return saveItemLayout(item.id, nextCols);
     });
+    setCustomColumns(prev => ({ ...prev, ...nextColsMap }));
     await Promise.all(updates);
     toast({ title: hide ? "Column Hidden" : "Column Restored", description: `Column "${colName}" visibility updated.` });
   };
@@ -943,21 +967,23 @@ export default function FinalizeBoq() {
   }, [loadTemplates]);
 
   useEffect(() => {
+    // Always clear version-specific state when project changes
+    setBomVersions([]);
+    setBoqVersions([]);
+    setSelectedBomVersionId(null);
+    setSelectedBoqVersionId(null);
+    setBoqItems([]);
+    setSelectedProductIds(new Set());
+    setIsFullscreen(false);
+    setCustomColumns({});
+    setCustomColumnValues({});
+    setProductDescriptions({});
+    setProductQuantities({});
+    setProductUnits({});
+    setOverrideRates({});
+    setGlobalColSettings({});
+
     if (!selectedProjectId) {
-      setBomVersions([]);
-      setBoqVersions([]);
-      setSelectedBomVersionId(null);
-      setSelectedBoqVersionId(null);
-      setBoqItems([]);
-      setSelectedProductIds(new Set());
-      setIsFullscreen(false);
-      setCustomColumns({});
-      setCustomColumnValues({});
-      setProductDescriptions({});
-      setProductQuantities({});
-      setProductUnits({});
-      setOverrideRates({});
-      setGlobalColSettings({});
       return;
     }
 
@@ -976,17 +1002,17 @@ export default function FinalizeBoq() {
           setBomVersions(bomList);
           setBoqVersions(boqList);
 
+          let approved: any = null;
+
           // Logic for selecting initial BOM version
           if (selectedBomVersionId && bomList.some((v: BOQVersion) => v.id === selectedBomVersionId)) {
             // keep existing
           } else {
-            const approved = bomList.find((v: BOQVersion) => v.status === "approved");
-            const selectable = bomList.filter((v: BOQVersion) => v.status === "approved");
+            const selectable = bomList.filter((v: BOQVersion) => v.status === "approved" && !v.is_disabled);
+            approved = selectable[0] || null;
 
-            if (approved && selectable.some((v: BOQVersion) => v.id === approved.id)) {
+            if (approved) {
               setSelectedBomVersionId(approved.id);
-            } else if (selectable.length > 0) {
-              setSelectedBomVersionId(selectable[0].id);
             } else {
               setSelectedBomVersionId(null);
             }
@@ -995,10 +1021,14 @@ export default function FinalizeBoq() {
           // Logic for selecting initial BOQ version
           if (selectedBoqVersionId && boqList.some((v: BOQVersion) => v.id === selectedBoqVersionId)) {
             // keep existing
-          } else if (boqList.length > 0) {
-            setSelectedBoqVersionId(boqList[0].id);
           } else {
-            setSelectedBoqVersionId(null);
+            const selectableBoqs = boqList.filter((v: BOQVersion) => !v.is_disabled);
+            // ONLY auto-select a BOQ if no approved BOM was selected above to prevent conflicting data views
+            if (selectableBoqs.length > 0 && !approved) {
+              setSelectedBoqVersionId(selectableBoqs[0].id);
+            } else {
+              setSelectedBoqVersionId(null);
+            }
           }
         }
       } catch (err) {
@@ -1160,9 +1190,36 @@ export default function FinalizeBoq() {
     }
   }, [toast]);
 
+  // Refresh both versions list + item data for the current selection
+  const handleRefreshBomData = useCallback(async () => {
+    if (selectedProjectId) {
+      // Clear items while refreshing to show loading state
+      setBoqItems([]);
+      try {
+        const [bomResp, boqResp] = await Promise.all([
+          apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=bom`),
+          apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=boq`)
+        ]);
+        if (bomResp.ok) {
+          const bomData = await bomResp.json();
+          setBomVersions(bomData.versions || []);
+        }
+        if (boqResp.ok) {
+          const boqData = await boqResp.json();
+          setBoqVersions(boqData.versions || []);
+        }
+      } catch (err) {
+        console.error("Failed to refresh versions:", err);
+      }
+    }
+    // Increment key to force item reload even if version ID hasn't changed
+    setRefreshKey(prev => prev + 1);
+    toast({ title: "Refreshed", description: "BOM data reloaded from server." });
+  }, [selectedProjectId, toast]);
+
   useEffect(() => {
     loadBoqItemsAndEdits(selectedBoqVersionId || selectedBomVersionId);
-  }, [selectedBomVersionId, selectedBoqVersionId, loadBoqItemsAndEdits]);
+  }, [selectedBomVersionId, selectedBoqVersionId, loadBoqItemsAndEdits, refreshKey]);
 
   useEffect(() => {
     try {
@@ -1172,7 +1229,11 @@ export default function FinalizeBoq() {
       const projectParam = params.get("project");
       if (projectParam && projectParam !== selectedProjectId) {
         const exists = projects.find((p) => p.id === projectParam);
-        if (exists) setSelectedProjectId(projectParam);
+        if (exists) {
+          setSelectedProjectId(projectParam);
+          setSelectedBomVersionId(null);
+          setSelectedBoqVersionId(null);
+        }
       }
     } catch (e) {
       // ignore
@@ -1634,6 +1695,68 @@ export default function FinalizeBoq() {
       toast({
         title: "Error",
         description: `Failed to save ${activeVersion?.type === 'boq' ? 'BOQ' : 'BOM'} version`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleToggleVersionDisabled = async (versionId: string, isDisabled: boolean) => {
+    try {
+      const resp = await apiFetch(`/api/boq-versions/${encodeURIComponent(versionId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_disabled: isDisabled })
+      });
+
+      if (resp.ok) {
+        toast({ title: isDisabled ? "Version Disabled" : "Version Enabled", description: `BOM Version ${isDisabled ? "hidden" : "restored"}.` });
+        // Refresh versions
+        if (selectedProjectId) {
+          const vResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=bom`);
+          if (vResp.ok) {
+            const data = await vResp.json();
+            setBomVersions(data.versions || []);
+            // If we disabled the active version, deselect it
+            if (isDisabled && selectedBomVersionId === versionId) {
+              setSelectedBomVersionId(null);
+            }
+          }
+        }
+      } else {
+        throw new Error("Failed to update version status");
+      }
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error", description: "Failed to update version", variant: "destructive" });
+    }
+  };
+
+  const handleFinanceSubmitForApproval = async () => {
+    if (!activeVersionId) return;
+    try {
+      await apiFetch(`/api/boq-versions/${activeVersionId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "submitted",
+          is_locked: true,
+          is_boq_submission: true,
+          type: "boq"
+        }),
+      });
+
+      const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=boq`);
+      if (boqResp.ok) setBoqVersions((await boqResp.json()).versions || []);
+
+      toast({
+        title: "Success",
+        description: "BOQ version submitted for approval",
+      });
+    } catch (err) {
+      console.error("Failed to submit for approval:", err);
+      toast({
+        title: "Error",
+        description: "Failed to submit for approval",
         variant: "destructive",
       });
     }
@@ -2689,9 +2812,26 @@ export default function FinalizeBoq() {
             {/* Row 2: Selection & Version History */}
             <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
               {/* Container 1: Project */}
-              <div className="flex-[2] min-w-[320px] space-y-1">
-                <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Select Project</Label>
-                <Select onValueChange={(v) => setSelectedProjectId(v || null)} value={selectedProjectId || ""}>
+              <div className="flex flex-col space-y-1">
+                <div className="flex items-center justify-between ml-1">
+                  <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Select Project</Label>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-5 text-[9px] px-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-bold uppercase tracking-tight"
+                    onClick={() => setShowDisabledVersionsDialog(true)}
+                  >
+                    <EyeOff className="h-2.5 w-2.5 mr-1" /> Disabled Versions
+                  </Button>
+                </div>
+                <Select 
+                  onValueChange={(v) => { 
+                    setSelectedProjectId(v || null);
+                    setSelectedBomVersionId(null);
+                    setSelectedBoqVersionId(null);
+                  }} 
+                  value={selectedProjectId || ""}
+                >
                   <SelectTrigger className="w-full bg-slate-50 border-slate-200 h-9 px-3 hover:bg-slate-100/50 transition-colors">
                     <SelectValue placeholder={projects.length === 0 ? "No projects" : "Choose from filtered list..."} />
                   </SelectTrigger>
@@ -2749,7 +2889,22 @@ export default function FinalizeBoq() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="h-9 w-9 text-slate-400 hover:text-amber-500 border border-slate-200 hover:bg-amber-50 bg-white shadow-sm shrink-0"
+                        title="Disable Version"
+                        disabled={!selectedBomVersionId}
+                        onClick={() => {
+                          if (selectedBomVersionId && confirm("Are you sure you want to disable this version? It will be moved to 'Disabled Versions'.")) {
+                            handleToggleVersionDisabled(selectedBomVersionId, true);
+                          }
+                        }}
+                      >
+                        <EyeOff className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-9 w-9 text-slate-400 hover:text-red-500 border border-slate-200 hover:bg-red-50 bg-white shadow-sm shrink-0"
+                        disabled={isVersionSubmitted}
                         onClick={() => {
                           if (!selectedBomVersionId) return;
                           openDeleteConfirm("Delete this BOM version?", "BOM Version", async (action) => {
@@ -2771,6 +2926,16 @@ export default function FinalizeBoq() {
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-slate-400 hover:text-green-600 border border-slate-200 hover:bg-green-50 bg-white shadow-sm shrink-0"
+                        title="Refresh BOM data — use this after a version has been edited and re-approved in Generate BOM"
+                        disabled={!selectedBomVersionId && !selectedBoqVersionId}
+                        onClick={handleRefreshBomData}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -2828,6 +2993,7 @@ export default function FinalizeBoq() {
                         variant="ghost"
                         size="icon"
                         className="h-9 w-9 text-slate-400 hover:text-red-500 border border-slate-200 hover:bg-red-50 bg-white shadow-sm shrink-0"
+                        disabled={isVersionSubmitted}
                         onClick={() => {
                           if (!selectedBoqVersionId) return;
                           openDeleteConfirm("Delete this BOQ version?", "BOQ Version", async (action) => {
@@ -2885,6 +3051,15 @@ export default function FinalizeBoq() {
               })()}
 
               <div className="flex gap-2 h-9 ml-auto items-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-full px-4 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-[11px] font-bold shadow-sm"
+                  onClick={() => setIsAnalysisDialogOpen(true)}
+                >
+                  <BarChart3 className="mr-2 h-3.5 w-3.5" />
+                  ANALYSIS
+                </Button>
 
                 <Popover>
                   <PopoverTrigger asChild>
@@ -4317,24 +4492,38 @@ export default function FinalizeBoq() {
                   >
                     Save Draft
                   </Button>
-                  <Button
-                    onClick={handleSubmitVersion}
-                    variant="default"
-                    disabled={isVersionSubmitted || boqItems.length === 0}
-                  >
-                    Lock Version
-                  </Button>
+                  
+                  {isFinanceTeam && (
+                    <Button
+                      onClick={handleFinanceSubmitForApproval}
+                      className="bg-orange-600 hover:bg-orange-700 text-white font-bold"
+                      disabled={isVersionSubmitted || boqItems.length === 0}
+                    >
+                      Submit for Approval
+                    </Button>
+                  )}
+
+                  {!isFinanceTeam && (
+                    <Button
+                      onClick={handleSubmitVersion}
+                      variant="default"
+                      disabled={isVersionSubmitted || boqItems.length === 0}
+                    >
+                      Lock Version
+                    </Button>
+                  )}
+
                   <Button
                     onClick={handleDownloadExcel}
                     variant="outline"
-                    disabled={boqItems.length === 0}
+                    disabled={boqItems.length === 0 || (isFinanceTeam && activeVersion?.status !== 'approved')}
                   >
                     Download as Excel
                   </Button>
                   <Button
                     onClick={handleDownloadPdfOpenDialog}
                     variant="outline"
-                    disabled={boqItems.length === 0}
+                    disabled={boqItems.length === 0 || (isFinanceTeam && activeVersion?.status !== 'approved')}
                   >
                     Download as PDF
                   </Button>
@@ -4343,6 +4532,11 @@ export default function FinalizeBoq() {
             </Card>
           )
         }
+
+        <BoqAnalysisDialog
+          open={isAnalysisDialogOpen}
+          onOpenChange={setIsAnalysisDialogOpen}
+        />
 
         {/* Save Template Dialog */}
         <Dialog open={isSaveTemplateDialogOpen} onOpenChange={setIsSaveTemplateDialogOpen}>
@@ -4369,6 +4563,56 @@ export default function FinalizeBoq() {
               </Button>
               <Button onClick={handleSaveAsTemplate}>
                 Save Template
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showDisabledVersionsDialog} onOpenChange={setShowDisabledVersionsDialog}>
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <EyeOff className="h-5 w-5 text-amber-500" />
+                Disabled BOM Versions
+                {selectedProjectId && projects.find(p => p.id === selectedProjectId) && (
+                  <span className="text-slate-400 text-xs font-normal ml-2">
+                    — {projects.find(p => p.id === selectedProjectId)?.name}
+                  </span>
+                )}
+              </DialogTitle>
+              <DialogDescription>
+                These approved versions have been hidden from the main selection for this project. You can restore them to make them active again.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[400px] overflow-y-auto py-4">
+              {bomVersions.filter(v => v.is_disabled).length === 0 ? (
+                <div className="text-center py-8 text-slate-400 italic">
+                  No disabled versions found.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {bomVersions.filter(v => v.is_disabled).map((v) => (
+                    <div key={v.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-900 text-sm">Version {v.version_number}</span>
+                        <span className="text-[10px] text-slate-500 uppercase font-medium">Approved on {new Date(v.updated_at || v.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs font-bold border-blue-200 text-blue-600 hover:bg-blue-50"
+                        onClick={() => handleToggleVersionDisabled(v.id, false)}
+                      >
+                        <Eye className="h-3 w-3 mr-1.5" /> Restore
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setShowDisabledVersionsDialog(false)}>
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>

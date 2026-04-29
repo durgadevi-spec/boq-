@@ -339,6 +339,9 @@ export default function SketchPlans() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="sticky top-0 z-20 bg-white shadow-sm border-b border-slate-200 p-4 rounded-lg mb-4">
           <div className="flex items-center gap-2">
             <input
               type="text"

@@ -23,6 +23,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from 'xlsx';
 import { DeleteConfirmationDialog } from "../components/ui/DeleteConfirmationDialog";
+import { ProductAnalysisDialog } from "@/components/ProductAnalysisDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   Table,
@@ -289,7 +290,7 @@ function VersionStatusBanner({ version }: { version: BOMVersion }) {
 
 // ─── BOQ Item Card ─────────────────────────────────────────────────────────────
 
-function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, setExpandedProductIds, getEditedValue, updateEditedField, handleDeleteRow, handleFinalizeProduct, handleAddItem, loadBoqItemsAndEdits, setBoqItems, checkBudgetEarly, handleSaveProject, onCardDragStart, onCardDragOver, onCardDrop, isCardDragOver, mismatches, isCompactView, onSaveAsTemplate, editedFields, comments, users, currentUser, onAddComment, selectedVersionId, totalProducts, onProductOrdinalChange, itemCategoryFilter }: {
+function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, setExpandedProductIds, getEditedValue, updateEditedField, handleDeleteRow, handleFinalizeProduct, handleAddItem, loadBoqItemsAndEdits, setBoqItems, checkBudgetEarly, handleSaveProject, onCardDragStart, onCardDragOver, onCardDrop, isCardDragOver, mismatches, isCompactView, onSaveAsTemplate, editedFields, comments, users, currentUser, onAddComment, selectedVersionId, totalProducts, onProductOrdinalChange, itemCategoryFilter, bomButtonsEnabled, onAnalysis }: {
   boqItem: BOMItem; boqIdx: number; isVersionSubmitted: boolean;
   expandedProductIds: Set<string>; setExpandedProductIds: (fn: (p: Set<string>) => Set<string>) => void;
   getEditedValue: (k: string, f: string, v: any) => any;
@@ -317,10 +318,14 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
   totalProducts?: number;
   onProductOrdinalChange?: (toIdx: number) => void;
   itemCategoryFilter: string;
+  bomButtonsEnabled?: boolean;
+  onAnalysis: (productName: string) => void;
 }) {
   const { toast } = useToast();
   const tableData = parseTableData(boqItem.table_data);
   const [localTarget, setLocalTarget] = useState(tableData.targetRequiredQty || 0);
+  const [showDescTooltip, setShowDescTooltip] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     setLocalTarget(tableData.targetRequiredQty || 0);
@@ -475,72 +480,107 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
       onDragOver={onCardDragOver}
       onDrop={onCardDrop}
     >
-      {/* Header */}
-      <div className={`${isProductIndicate ? 'bg-rose-100/50 border-rose-200' : 'bg-gray-100 border-gray-200'} px-4 flex flex-wrap justify-between items-center border-b gap-y-2 ${isCompactView ? 'py-1.5' : 'py-3'}`}>
-        <div className={`flex ${isCompactView ? 'items-center justify-between w-full' : 'flex-col gap-0.5 flex-1 min-w-0'}`}>
-          <div className={`flex items-center gap-2 font-semibold text-gray-800 flex-wrap ${isCompactView ? 'text-xs' : 'text-sm'}`}>
-            <GripVertical className={`h-4 w-4 flex-shrink-0 ${isVersionSubmitted ? 'text-gray-200' : 'text-gray-400 hover:text-blue-500 cursor-grab'}`} />
-            {!isVersionSubmitted ? (
-              <select
-                value={boqIdx}
-                onChange={(e) => onProductOrdinalChange?.(parseInt(e.target.value))}
-                onClick={(e) => e.stopPropagation()}
-                className={`text-xs p-0.5 border border-slate-200 rounded outline-none cursor-pointer text-slate-700 ${isProductIndicate ? 'bg-rose-50 border-rose-200' : 'bg-white'}`}
-              >
-                {Array.from({ length: totalProducts || 1 }).map((_, i) => (
-                  <option key={i} value={i}>{i + 1}</option>
-                ))}
-              </select>
-            ) : null}
-            {displayImage && <img src={displayImage} alt={productName} className="h-8 w-8 object-cover rounded shadow-sm border border-slate-200" />}
-            <span className="truncate max-w-[200px] sm:max-w-sm" title={productName}>
-              {isVersionSubmitted ? `${boqIdx + 1}. ` : ""}{productName}
-            </span>
-            {!isVersionSubmitted && (
-              <label
-                className="flex items-center gap-1 text-[10px] text-blue-600 font-bold bg-white px-1.5 py-0.5 rounded border border-blue-200 shadow-sm whitespace-nowrap cursor-pointer ml-1"
-                onClick={e => e.stopPropagation()}
-                title="Convert to Lump Sum"
-              >
-                <input
-                  type="checkbox"
-                  checked={isLumpSum}
-                  onChange={async (e) => {
-                    const checked = e.target.checked;
-                    updateEditedField(boqItem.id, "is_lump_sum", checked);
-                    try {
-                      // Update tableData in backend
-                      let updatedTd = { ...tableData, is_lump_sum: checked };
-                      const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
-                      if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
-                    } catch (err) { console.error("Failed to save is_lump_sum", err); }
-                  }}
-                  className="cursor-pointer"
-                />
+      {/* Header Row */}
+      <div className={`${isProductIndicate ? 'bg-rose-100/50 border-rose-200' : 'bg-gray-100 border-gray-200'} px-4 py-2 flex flex-wrap justify-between items-center border-b gap-x-4 gap-y-2`}>
+        <div className="flex items-center gap-3 font-bold text-gray-800 flex-1 min-w-0">
+          <GripVertical className={`h-4 w-4 flex-shrink-0 ${isVersionSubmitted ? 'text-gray-200' : 'text-gray-400 hover:text-blue-500 cursor-grab'}`} />
+          {!isVersionSubmitted && (
+            <select
+              value={boqIdx}
+              onChange={(e) => onProductOrdinalChange?.(parseInt(e.target.value))}
+              onClick={(e) => e.stopPropagation()}
+              className={`text-xs p-0.5 border border-slate-200 rounded outline-none cursor-pointer text-slate-700 ${isProductIndicate ? 'bg-rose-50 border-rose-200' : 'bg-white'}`}
+            >
+              {Array.from({ length: totalProducts || 1 }).map((_, i) => (
+                <option key={i} value={i}>{i + 1}</option>
+              ))}
+            </select>
+          )}
+          {displayImage && <img src={displayImage} alt={productName} className="h-7 w-7 object-cover rounded shadow-sm border border-slate-200" />}
+          <span className="truncate max-w-[200px] sm:max-w-sm text-sm" title={productName}>
+            {isVersionSubmitted ? `${boqIdx + 1}. ` : ""}{productName}
+          </span>
+          
+          {!isCompactView && !isVersionSubmitted && (
+            <div className="flex items-center gap-2 ml-2">
+              <label className="flex items-center gap-1 text-[10px] text-blue-600 font-bold bg-white px-1.5 py-0.5 rounded border border-blue-200 shadow-sm cursor-pointer whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                <input type="checkbox" checked={isLumpSum} onChange={async (e) => {
+                  const checked = e.target.checked;
+                  updateEditedField(boqItem.id, "is_lump_sum", checked);
+                  try {
+                    let updatedTd = { ...tableData, is_lump_sum: checked };
+                    const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
+                    if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
+                  } catch (err) { console.error("Failed to save is_lump_sum", err); }
+                }} />
                 Convert to LS
               </label>
-            )}
-            {!isVersionSubmitted && (
-              <label
-                className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm whitespace-nowrap cursor-pointer ml-1"
-                onClick={e => e.stopPropagation()}
-              >
-                <input
-                  type="checkbox"
-                  checked={isProductIndicate}
-                  onChange={(e) => updateEditedField(boqItem.id, "indicate", e.target.checked)}
-                  className="cursor-pointer"
-                />
+              <label className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm cursor-pointer whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                <input type="checkbox" checked={isProductIndicate} onChange={(e) => updateEditedField(boqItem.id, "indicate", e.target.checked)} />
                 Indicate
               </label>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          {isCompactView && (
+            <div className="flex items-center gap-3 text-[11px] bg-white px-2 py-0.5 rounded border border-slate-200 shadow-sm whitespace-nowrap">
+              <span className="font-semibold text-slate-500">Rate: <span className="text-blue-700 font-bold">₹{ratePerUnit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+              <div className="w-px h-3 bg-slate-300"></div>
+              <span className="font-semibold text-slate-500">Total: <span className="text-slate-900 font-bold">₹{grandTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+            </div>
+          )}
+          {tableData.is_finalized && <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold text-[10px]">Finalized</span>}
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title={isExpanded ? "Collapse" : "Expand"} onClick={toggle}>
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div className={`px-4 ${isCompactView ? 'py-1.5' : 'py-3'} space-y-3`}>
+        {isCompactView ? (
+          <div className="flex flex-wrap gap-2 items-center justify-end">
+            {!tableData.is_finalized && (
+              <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted || !bomButtonsEnabled} onClick={() => handleAddItem(boqItem.id)}>+ Add Item</Button>
             )}
-            {!isVersionSubmitted && !isCompactView ? (
-              <div className="flex items-center gap-1 ml-2">
-                <MapPin className="h-3 w-3 text-gray-400" />
+            <Button variant="default" size="sm" className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700 text-white" disabled={isVersionSubmitted || tableData.is_finalized} onClick={() => handleFinalizeProduct(boqItem.id)}>Finalize</Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-6 text-[10px] px-2 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 font-bold" 
+              onClick={() => onAnalysis(productName)}
+            >
+              <History className="h-3 w-3 mr-1" />
+              Analysis
+            </Button>
+            <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted} onClick={() => onSaveAsTemplate?.(boqItem)}>Save as Template</Button>
+            {!isBifProd && (
+              <Button variant="destructive" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted}
+                onClick={async () => {
+                  if (!confirm("Delete this product and all its items?")) return;
+                  try {
+                    const res = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" });
+                    if (res.ok) {
+                      setBoqItems(prev => prev.filter(i => i.id !== boqItem.id));
+                      toast({ title: "Product Deleted", description: "The product has been deleted permanently." });
+                      loadBoqItemsAndEdits();
+                    }
+                  } catch (err) { console.error("Failed to delete product", err); }
+                }}>Delete</Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Row 2: Area + Add Item + Finalize */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded px-2 py-1 shadow-sm">
+                <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
                 <input
                   type="text"
                   placeholder="Area (e.g. Hall)"
-                  className="text-[10px] w-24 h-5 px-1.5 border border-slate-200 rounded outline-none focus:ring-1 ring-blue-400 transition-all bg-white font-medium"
+                  className="text-xs w-32 h-6 border-none outline-none focus:ring-0 bg-transparent font-bold text-slate-700"
                   value={tableData.category || ""}
                   onChange={(e) => {
                     const newArea = e.target.value;
@@ -551,7 +591,6 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                     const newArea = editedFields[boqItem.id]?.category;
                     if (newArea === undefined) return;
                     try {
-                      // Update product and optionally all its materials
                       const updatedTd = { ...tableData, category: newArea, category_name: newArea };
                       if (updatedTd.materialLines) {
                         updatedTd.materialLines = updatedTd.materialLines.map((ml: any) => ({ ...ml, category: newArea }));
@@ -560,76 +599,89 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                       if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
                     } catch (err) { console.error("Failed to save area", err); }
                   }}
-                  onClick={e => e.stopPropagation()}
-                  title="Project Area / Location"
                 />
               </div>
-            ) : (
-              tableData.category && !isCompactView && <span className="text-xs text-gray-500 font-normal">({tableData.category})</span>
-            )}
-            {tableData.is_finalized && <span className={`inline-block bg-green-100 text-green-700 px-2 py-0.5 rounded font-semibold ml-2 ${isCompactView ? 'text-[10px]' : 'text-xs'}`}>Finalized</span>}
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-1 shrink-0" title={isExpanded ? "Collapse" : "Expand"} onClick={toggle}>
-              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </Button>
-            {isCompactView && (
-              <div className="ml-4 flex items-center gap-3 text-[11px] bg-white px-2 py-0.5 rounded border border-slate-200 shadow-sm whitespace-nowrap">
-                <span className="font-semibold text-slate-500">Rate: <span className="text-blue-700 font-bold">₹{ratePerUnit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
-                <div className="w-px h-3 bg-slate-300"></div>
-                <span className="font-semibold text-slate-500">Total: <span className="text-slate-900 font-bold">₹{grandTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+
+              <div className="flex items-center gap-2">
+                {!tableData.is_finalized && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs border-slate-300 font-bold" disabled={isVersionSubmitted || !bomButtonsEnabled} onClick={() => handleAddItem(boqItem.id)}>+ Add Item</Button>
+                )}
+                <Button variant="default" size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white font-bold" disabled={isVersionSubmitted || tableData.is_finalized} onClick={() => handleFinalizeProduct(boqItem.id)}>Finalize</Button>
               </div>
-            )}
-          </div>
-
-          {isCompactView && (
-            <div className="flex flex-wrap gap-2 ml-4 mt-2 sm:mt-0 items-center justify-end">
-              {!tableData.is_finalized && (
-                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted} onClick={() => handleAddItem(boqItem.id)}>+ Add Item</Button>
-              )}
-              <Button variant="default" size="sm" className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700 text-white" disabled={isVersionSubmitted || tableData.is_finalized} onClick={() => handleFinalizeProduct(boqItem.id)}>Finalize</Button>
-              <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted} onClick={() => onSaveAsTemplate?.(boqItem)}>Save as Template</Button>
-              {!isBifProd && (
-                <Button variant="destructive" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted}
-                  onClick={async () => {
-                    if (!confirm("Delete this product and all its items?")) return;
-                    try {
-                      const res = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" });
-
-                      if (res.ok) {
-                        setBoqItems(prev => prev.filter(i => i.id !== boqItem.id));
-                        toast({ title: "Product Deleted", description: "The product has been deleted permanently." });
-
-                        // Finalize state update to ensure and recalculate
-                        loadBoqItemsAndEdits();
-                      } else {
-                        throw new Error("Failed to delete product");
-                      }
-                    } catch (err) {
-                      console.error("Failed to delete product", err);
-                      toast({ title: "Error", description: "Failed to delete product.", variant: "destructive" });
-                    }
-                  }}>Delete Product</Button>
-              )}
             </div>
-          )}
 
-          {!isCompactView && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-4 mt-1">
-                <div className="flex flex-col bg-white border border-slate-200 rounded-md px-3 py-1.5 shadow-sm">
-                  <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight mb-1">Rate per {isLumpSum ? "LS" : (tableData.configBasis?.requiredUnitType || "Unit")}</span>
-                  <span className="text-sm font-extrabold text-blue-700">₹{isLumpSum ? grandTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ratePerUnit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            {/* Row 3: Rate, Total, Analysis, Save, Comments, Delete */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col bg-white border border-slate-200 rounded px-3 py-1 shadow-sm min-w-[100px]">
+                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-tight">Rate per {isLumpSum ? "LS" : (tableData.configBasis?.requiredUnitType || "Unit")}</span>
+                  <span className="text-sm font-black text-blue-700 leading-tight">₹{isLumpSum ? grandTotalValue.toLocaleString() : ratePerUnit.toLocaleString()}</span>
                 </div>
-                <div className="flex flex-col bg-white border border-slate-200 rounded-md px-3 py-1.5 shadow-sm">
-                  <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight mb-1">Grand Total</span>
-                  <span className="text-sm font-extrabold text-slate-900">
-                    ₹{grandTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+                <div className="flex flex-col bg-white border border-slate-200 rounded px-3 py-1 shadow-sm min-w-[100px]">
+                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-tight">Grand Total</span>
+                  <span className="text-sm font-black text-slate-900 leading-tight">₹{grandTotalValue.toLocaleString()}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap mt-2">
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-7 text-xs bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 font-bold shadow-sm" 
+                  onClick={() => onAnalysis(productName)}
+                >
+                  <History className="h-3.5 w-3.5 mr-1" />
+                  Analysis
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs font-bold border-slate-300 shadow-sm" disabled={isVersionSubmitted} onClick={() => onSaveAsTemplate?.(boqItem)}>Save as Template</Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs font-bold border-slate-300 shadow-sm relative" onClick={() => onAddComment(selectedVersionId!, boqItem.id)}>
+                  <MessageSquare className="h-3 w-3 mr-1" />
+                  Comments ({comments.filter(c => c.product_id === boqItem.id || (c.item_id && c.item_id.startsWith(boqItem.id))).length})
+                  {(() => {
+                    const unread = comments.filter(c => {
+                      if (c.product_id !== boqItem.id && !(c.item_id && c.item_id.startsWith(boqItem.id))) return false;
+                      if (c.user_id === currentUser?.id) return false;
+                      const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username));
+                      return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
+                    }).length;
+                    return unread > 0 ? (
+                      <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center px-1 font-bold shadow border border-white">{unread}</span>
+                    ) : null;
+                  })()}
+                </Button>
+                {!isBifProd && (
+                  <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    className="h-7 w-7 p-0 bg-red-500 hover:bg-red-600 shadow-sm" 
+                    disabled={isVersionSubmitted}
+                    onClick={async () => {
+                      if (!confirm("Delete this product and all its items?")) return;
+                      try { await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" }); loadBoqItemsAndEdits(); } catch { /* */ }
+                    }}
+                    title="Delete Product"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Row 4: Description + HSN/SAC */}
+            <div className="flex flex-wrap items-center gap-4 pt-1">
+              <div className="relative flex-1 min-w-[300px]"
+                onMouseEnter={(e) => {
+                  if (tableData.finalize_description) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setTooltipPos({ x: rect.left, y: rect.bottom + 5 });
+                    setShowDescTooltip(true);
+                  }
+                }}
+                onMouseLeave={() => setShowDescTooltip(false)}
+              >
                 <Input
                   placeholder="Enter product description..."
-                  className="h-8 text-xs w-full max-w-md mt-1"
+                  className="h-8 text-xs w-full font-bold text-slate-700 bg-slate-50 border-slate-200 hover:bg-white focus:bg-white focus:ring-1 ring-blue-100"
                   defaultValue={tableData.finalize_description || ""}
                   disabled={isVersionSubmitted}
                   onFocus={checkBudgetEarly}
@@ -643,106 +695,54 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                     } catch (err) { console.error("Failed to save description", err); }
                   }}
                 />
-                <EditableHsnSac
-                  tableData={tableData}
-                  onUpdate={async (hsn, sac) => {
-                    try {
-                      const updatedTd = { ...tableData, hsn_code: hsn, sac_code: sac, hsn_sac_type: hsn ? 'hsn' : (sac ? 'sac' : null), hsn_sac_code: hsn || sac || "" };
-                      const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ table_data: updatedTd })
-                      });
-                      if (resp.ok) {
-                        setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i));
-                      }
-                    } catch (err) { console.error("Failed to save HSN/SAC", err); }
-                  }}
-                />
-              </div>
-              {isEngineBased && (
-                <div className={`flex items-center gap-2 text-[11px] text-gray-600 font-medium whitespace-nowrap ${isLumpSum ? "opacity-50 pointer-events-none" : ""}`}>
-                  Project Target:
-                  <div className="flex items-center gap-1 group/target">
-                    <Input
-                      type="number"
-                      className="h-7 w-20 text-[11px] font-bold text-blue-600 px-1 py-0 border-blue-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-100 transition-all rounded"
-                      value={isLumpSum ? 1 : localTarget}
-                      onChange={(e) => setLocalTarget(parseFloat(e.target.value) || 0)}
-                      disabled={isVersionSubmitted || tableData.is_finalized}
-                      onBlur={async (e) => {
-                        const newVal = parseFloat(e.target.value);
-                        const currentVal = tableData.targetRequiredQty ?? 1;
-                        if (isNaN(newVal) || newVal === currentVal || newVal <= 0) {
-                          setLocalTarget(currentVal);
-                          return;
-                        }
-
-                        try {
-                          const updatedTd = { ...tableData, targetRequiredQty: newVal };
-                          const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, {
-                            method: "PUT",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ table_data: updatedTd }),
-                          });
-
-                          if (resp.ok) {
-                            setBoqItems((prev: BOMItem[]) =>
-                              prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)
-                            );
-                            toast({ title: "Updated", description: `Project target updated to ${newVal} ${tableData.configBasis?.requiredUnitType || "Unit"}` });
-                          } else {
-                            toast({ title: "Error", description: "Failed to save project target", variant: "destructive" });
-                            setLocalTarget(currentVal);
-                          }
-                        } catch (err) {
-                          console.error("Failed to update target qty", err);
-                          toast({ title: "Error", description: "Failed to connect to server", variant: "destructive" });
-                          setLocalTarget(currentVal);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          (e.target as HTMLInputElement).blur();
-                        }
-                      }}
-                    />
-                    <span className="text-blue-600 font-bold">{isLumpSum ? "LS" : (tableData.configBasis?.requiredUnitType || "Unit")}</span>
+                {showDescTooltip && tableData.finalize_description && (
+                  <div className="fixed bg-gray-900 text-white text-[10px] rounded px-3 py-2 shadow-lg z-50 max-w-xs break-words font-medium" style={{ left: `${tooltipPos.x}px`, top: `${tooltipPos.y}px` }}>
+                    {tableData.finalize_description}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+              
+              <EditableHsnSac
+                tableData={tableData}
+                onUpdate={async (hsn, sac) => {
+                  try {
+                    const updatedTd = { ...tableData, hsn_code: hsn, sac_code: sac, hsn_sac_type: hsn ? 'hsn' : (sac ? 'sac' : null), hsn_sac_code: hsn || sac || "" };
+                    const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ table_data: updatedTd })
+                    });
+                    if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
+                  } catch (err) { console.error("Failed to save HSN/SAC", err); }
+                }}
+              />
             </div>
-          )}
-        </div>
 
-        {!isCompactView && (
-          <div className="flex flex-wrap items-center gap-2 px-1 shrink-0 mt-2 sm:mt-0 justify-end w-full sm:w-auto">
-            {!tableData.is_finalized && (
-              <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted} onClick={() => handleAddItem(boqItem.id)}>+ Add Item</Button>
-            )}
-            <Button variant="default" size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white" disabled={isVersionSubmitted || tableData.is_finalized} onClick={() => handleFinalizeProduct(boqItem.id)}>Finalize</Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted} onClick={() => onSaveAsTemplate?.(boqItem)}>Save as Template</Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs relative" onClick={() => onAddComment(selectedVersionId!, boqItem.id)}>
-              <MessageSquare className="h-3 w-3 mr-1" />
-              Comments ({comments.filter(c => c.product_id === boqItem.id || (c.item_id && c.item_id.startsWith(boqItem.id))).length})
-              {(() => {
-                const unread = comments.filter(c => {
-                  if (c.product_id !== boqItem.id && !(c.item_id && c.item_id.startsWith(boqItem.id))) return false;
-                  if (c.user_id === currentUser?.id) return false;
-                  const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username));
-                  return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
-                }).length;
-                return unread > 0 ? (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center px-1 font-bold shadow border border-white">{unread}</span>
-                ) : null;
-              })()}
-            </Button>
-            {!isBifProd && (
-              <Button variant="destructive" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted}
-                onClick={async () => {
-                  if (!confirm("Delete this product and all its items?")) return;
-                  try { await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" }); loadBoqItemsAndEdits(); } catch { /* handled */ }
-                }}>Delete Product</Button>
+            {/* Row 5: Project Target */}
+            {isEngineBased && (
+              <div className={`flex items-center gap-3 pt-1 ${isLumpSum ? "opacity-50 pointer-events-none" : ""}`}>
+                <span className="text-xs font-black text-slate-500 uppercase tracking-tight">Project Target:</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    className="h-8 w-24 text-xs font-black text-blue-600 border-blue-200 focus:ring-1 ring-blue-100 bg-white"
+                    value={isLumpSum ? 1 : localTarget}
+                    onChange={(e) => setLocalTarget(parseFloat(e.target.value) || 0)}
+                    disabled={isVersionSubmitted || tableData.is_finalized}
+                    onBlur={async (e) => {
+                      const newVal = parseFloat(e.target.value);
+                      const currentVal = tableData.targetRequiredQty ?? 1;
+                      if (isNaN(newVal) || newVal === currentVal || newVal <= 0) { setLocalTarget(currentVal); return; }
+                      try {
+                        const updatedTd = { ...tableData, targetRequiredQty: newVal };
+                        const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
+                        if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
+                      } catch (err) { console.error("Failed to update target qty", err); }
+                    }}
+                  />
+                  <span className="text-xs font-black text-blue-600">{isLumpSum ? "LS" : (tableData.configBasis?.requiredUnitType || "Unit")}</span>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -991,7 +991,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           </td>
         )}
         {!isCompactView && <td className="border px-2 py-2 text-left w-32 text-gray-600">{item.shop_name || "-"}</td>}
-        {!isCompactView && <td className="border px-2 py-2 text-left w-[300px] text-gray-600 truncate max-w-[300px]">{item.description || "-"}</td>}
+        {!isCompactView && <td className="border px-2 py-2 text-left w-[300px] text-gray-600 truncate max-w-[300px] hover:cursor-help hover:bg-blue-50" title={item.description || "-"}>{item.description || "-"}</td>}
         <td className="border px-2 py-2 text-center w-16">{item.unit || "-"}</td>
         <td className="border px-2 py-2 text-center w-20 font-medium">{(item.qtyPerSqf ?? 0).toFixed(3)}</td>
         <td className="border px-2 py-2 text-center w-24 text-blue-600 font-medium">{(item.requiredQty ?? 0).toFixed(2)}</td>
@@ -1155,7 +1155,8 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           onChange={(e) => setLocalDesc(e.target.value)}
           onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "description", localDesc); }}
           placeholder="Description..."
-          className="h-7 text-xs border-gray-200 focus:border-blue-400"
+          title={localDesc}
+          className="h-7 text-xs border-gray-200 focus:border-blue-400 hover:bg-blue-50"
           disabled={isVersionSubmitted || (item.freezeAndEdit || item.freeze_and_edit)}
           onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
@@ -1677,8 +1678,9 @@ export default function CreateBom() {
   const [productCategoryFilter, setProductCategoryFilter] = useState("all");
   const [itemCategoryFilter, setItemCategoryFilter] = useState("all");
   const [isCompactView, setIsCompactView] = useState(false);
-  const cardDragIdxRef = useRef<number | null>(null);
+  const [analysisProduct, setAnalysisProduct] = useState<string | null>(null);
   const [cardDragOverIdx, setCardDragOverIdx] = useState<number | null>(null);
+  const [bomButtonsEnabled, setBomButtonsEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [materialsById, setMaterialsById] = useState<Record<string, any>>({});
   const [isUpdatingRates, setIsUpdatingRates] = useState(false);
@@ -1753,6 +1755,7 @@ export default function CreateBom() {
   const [templateSearch, setTemplateSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; type: 'template' | 'sketch' | 'version'; id: string; name: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadTemplates = useCallback(async () => {
@@ -1771,6 +1774,40 @@ export default function CreateBom() {
       console.error("Failed to load templates:", e);
     }
   }, []);
+
+  const fetchSystemSettings = useCallback(async () => {
+    try {
+      const resp = await apiFetch("/api/system-settings/bom_buttons_enabled");
+      if (resp.ok) {
+        const data = await resp.json();
+        setBomButtonsEnabled(data.value === "true");
+      }
+    } catch (err) {
+      console.error("Failed to fetch system settings", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSystemSettings();
+  }, [fetchSystemSettings]);
+
+  const toggleBomButtons = async () => {
+    const newValue = !bomButtonsEnabled;
+    try {
+      const resp = await apiFetch("/api/system-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "bom_buttons_enabled", value: String(newValue) })
+      });
+      if (resp.ok) {
+        setBomButtonsEnabled(newValue);
+        toast({ title: newValue ? "Buttons Enabled" : "Buttons Disabled", description: `BOM modification buttons are now ${newValue ? "enabled" : "disabled"} globally.` });
+      }
+    } catch (err) {
+      console.error("Failed to toggle BOM buttons", err);
+      toast({ title: "Error", description: "Failed to update settings", variant: "destructive" });
+    }
+  };
 
   const fetchApprovals = useCallback(async () => {
     try {
@@ -3657,6 +3694,19 @@ export default function CreateBom() {
               <h1 className="text-2xl font-semibold font-outfit text-slate-900 tracking-tight flex items-center gap-2">
                 Generate BOM
                 {activeTab === 'approvals' && <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200 uppercase tracking-widest text-[10px]">Approvals View</Badge>}
+                {user?.role === 'admin' && (
+                  <div className="flex items-center gap-2 ml-4">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Modification:</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`h-6 px-2 text-[10px] font-bold ${bomButtonsEnabled ? 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100' : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'}`}
+                      onClick={toggleBomButtons}
+                    >
+                      {bomButtonsEnabled ? 'Enabled' : 'Disabled'}
+                    </Button>
+                  </div>
+                )}
               </h1>
 
               {(user?.role === 'admin' || user?.role === 'software_team') && (
@@ -3930,8 +3980,8 @@ export default function CreateBom() {
                         <Button onClick={() => setShowCompareDialog(true)} variant="outline" className="border-blue-200 h-full px-4 text-xs font-bold shadow-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-2" disabled={!selectedProjectId}>
                           <ChevronsUpDown className="h-4 w-4" /> Compare
                         </Button>
-                        <Button onClick={handleAddProduct} className="bg-primary text-white h-full px-5 text-xs font-bold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId}>+ Add Product</Button>
-                        <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-full px-5 text-xs font-bold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId}>+ Add Item</Button>
+                        <Button onClick={handleAddProduct} className="bg-primary text-white h-full px-5 text-xs font-bold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled}>+ Add Product</Button>
+                        <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-full px-5 text-xs font-bold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled}>+ Add Item</Button>
                       </div>
                     </div>
 
@@ -4205,51 +4255,54 @@ export default function CreateBom() {
               {/* BOQ Items */}
               {selectedProjectId && (
                 <Card>
-                  <CardContent className="space-y-4 pt-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-bold text-gray-800">BOQ Items</h2>
-                      <div className="flex items-center gap-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsCompactView(!isCompactView)}
-                          className={`h-9 px-3 font-semibold ${isCompactView ? 'bg-blue-50 text-blue-600 border-blue-300' : 'text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                        >
-                          Compact View
-                        </Button>
-                        <div className="flex items-center gap-2">
-                          <Select value={productCategoryFilter} onValueChange={setProductCategoryFilter}>
-                            <SelectTrigger className="h-9 w-[160px] text-xs border-slate-200">
-                              <SelectValue placeholder="Product Category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Products</SelectItem>
-                              {productCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                  <CardContent className="space-y-0 pt-0">
+                    <div className="sticky top-0 z-20 bg-white rounded-t-lg shadow-sm border-b border-slate-200 p-6 pb-4">
+                      <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-bold text-gray-800">BOQ Items</h2>
+                        <div className="flex items-center gap-4">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setIsCompactView(!isCompactView)}
+                            className={`h-9 px-3 font-semibold ${isCompactView ? 'bg-blue-50 text-blue-600 border-blue-300' : 'text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                          >
+                            Compact View
+                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Select value={productCategoryFilter} onValueChange={setProductCategoryFilter}>
+                              <SelectTrigger className="h-9 w-[160px] text-xs border-slate-200">
+                                <SelectValue placeholder="Product Category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Products</SelectItem>
+                                {productCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
 
-                          <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
-                            <SelectTrigger className="h-9 w-[160px] text-xs border-slate-200">
-                              <SelectValue placeholder="Item Category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Item Categories</SelectItem>
-                              {itemCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                            <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
+                              <SelectTrigger className="h-9 w-[160px] text-xs border-slate-200">
+                                <SelectValue placeholder="Item Category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Item Categories</SelectItem>
+                                {itemCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
 
-                          <div className="relative w-64">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                            <Input
-                              placeholder="Search products..."
-                              value={productSearch}
-                              onChange={(e) => setProductSearch(e.target.value)}
-                              className="pl-9 h-9 text-sm border-slate-200 focus:ring-blue-500 shadow-sm"
-                            />
+                            <div className="relative w-64">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                              <Input
+                                placeholder="Search products..."
+                                value={productSearch}
+                                onChange={(e) => setProductSearch(e.target.value)}
+                                className="pl-9 h-9 text-sm border-slate-200 focus:ring-blue-500 shadow-sm"
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
+                    <div className="pt-6">
                     {boqItems.length === 0
                       ? <div className="text-gray-500 text-center py-4">No products added yet. Click Add Product +</div>
                       : <div className="space-y-6">
@@ -4286,12 +4339,13 @@ export default function CreateBom() {
                           })
                           .map((boqItem: BOMItem, boqIdx: number) => (
                             <div key={boqItem.id} id={`boq-item-card-${boqItem.id}`} className="transition-all duration-300">
-                              <BoqItemCard boqItem={boqItem} boqIdx={boqIdx} isVersionSubmitted={isVersionSubmitted}
-                                expandedProductIds={expandedProductIds} setExpandedProductIds={setExpandedProductIds}
-                                getEditedValue={getEditedValue} updateEditedField={updateEditedField}
-                                handleDeleteRow={handleDeleteRow} handleFinalizeProduct={handleFinalizeProduct}
-                                handleAddItem={handleAddItem} loadBoqItemsAndEdits={loadBoqItemsAndEdits} setBoqItems={setBoqItems}
-                                checkBudgetEarly={checkBudgetEarly} handleSaveProject={handleSaveProject}
+                                <BoqItemCard boqItem={boqItem} boqIdx={boqIdx} isVersionSubmitted={isVersionSubmitted}
+                                  expandedProductIds={expandedProductIds} setExpandedProductIds={setExpandedProductIds}
+                                  getEditedValue={getEditedValue} updateEditedField={updateEditedField}
+                                  handleDeleteRow={handleDeleteRow} handleFinalizeProduct={handleFinalizeProduct}
+                                  handleAddItem={handleAddItem} loadBoqItemsAndEdits={loadBoqItemsAndEdits} setBoqItems={setBoqItems}
+                                  checkBudgetEarly={checkBudgetEarly} handleSaveProject={handleSaveProject}
+                                  onAnalysis={(name) => setAnalysisProduct(name)}
                                 isCardDragOver={cardDragOverIdx === boqIdx}
                                 onCardDragStart={(e) => { cardDragIdxRef.current = boqIdx; e.dataTransfer.effectAllowed = 'move'; }}
                                 onCardDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setCardDragOverIdx(boqIdx); }}
@@ -4327,6 +4381,7 @@ export default function CreateBom() {
                                 selectedVersionId={selectedVersionId}
                                 totalProducts={boqItems.length}
                                 itemCategoryFilter={itemCategoryFilter}
+                                bomButtonsEnabled={bomButtonsEnabled}
                                 onProductOrdinalChange={(toIdx) => {
                                   if (toIdx === boqIdx) return;
                                   const reordered = [...boqItems];
@@ -4341,6 +4396,7 @@ export default function CreateBom() {
                           ))}
                       </div>
                     }
+                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -4386,8 +4442,8 @@ export default function CreateBom() {
 
       {/* Small floating Add buttons at bottom-right (duplicate of top actions) */}
       <div className="fixed right-6 bottom-24 z-50 flex flex-col items-end gap-2 md:gap-3">
-        <Button onClick={handleAddProduct} className="bg-primary text-white h-8 px-3 text-xs font-semibold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId} title="Add Product">+ Add Product</Button>
-        <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-8 px-3 text-xs font-semibold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId} title="Add Item">+ Add Item</Button>
+        <Button onClick={handleAddProduct} className="bg-primary text-white h-8 px-3 text-xs font-semibold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled} title="Add Product">+ Add Product</Button>
+        <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-8 px-3 text-xs font-semibold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled} title="Add Item">+ Add Item</Button>
         <Button
           onClick={() => setIsCompactView(!isCompactView)}
           variant="outline"
@@ -5108,6 +5164,11 @@ export default function CreateBom() {
         onClose={() => setPreviewApprovalId(null)}
         onAction={handleApprovalAction}
         actionLoading={approvalActionLoading}
+      />
+      <ProductAnalysisDialog 
+        productName={analysisProduct || ""} 
+        isOpen={!!analysisProduct} 
+        onClose={() => setAnalysisProduct(null)} 
       />
     </>
   );

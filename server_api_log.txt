@@ -1430,3 +1430,9 @@
   -> Found 0 approved and 0 draft configurations
 [2026-04-18T07:28:48.158Z] GET /api/step11-products/6d771b23-2679-40a9-917a-f6479b64173d
   -> Found 0 approved and 1 draft configurations
+[2026-04-21T10:43:57.104Z] GET /api/step11-products/f9c7c857-9174-4e67-89f2-fcd5b284d8cd
+  -> Found 1 approved and 1 draft configurations
+[2026-04-21T10:48:00.601Z] GET /api/step11-products/f9c7c857-9174-4e67-89f2-fcd5b284d8cd
+  -> Found 1 approved and 1 draft configurations
+[2026-04-22T10:43:57.210Z] GET /api/step11-products/cf196d77-53bc-47bb-97ae-ae85e42df4d8
+  -> Found 1 approved and 1 draft configurations

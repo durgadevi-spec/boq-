@@ -374,6 +374,12 @@ export const bomComments = pgTable("bom_comments", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
 });
 
+export const systemSettings = pgTable("system_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+});
+
 // Zod schemas and types
 export const insertSiteReportSchema = createInsertSchema(siteReports);
 export const insertSiteReportTaskSchema = createInsertSchema(siteReportTasks);
@@ -384,6 +390,7 @@ export const insertEmailGroupSchema = createInsertSchema(emailGroups);
 export const insertEmailGroupMemberSchema = createInsertSchema(emailGroupMembers);
 export const insertAuditLogSchema = createInsertSchema(auditLogs);
 export const insertBomCommentSchema = createInsertSchema(bomComments);
+export const insertSystemSettingsSchema = createInsertSchema(systemSettings);
 
 export type SiteReport = typeof siteReports.$inferSelect;
 export type InsertSiteReport = z.infer<typeof insertSiteReportSchema>;
@@ -403,3 +410,5 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type BomComment = typeof bomComments.$inferSelect;
 export type InsertBomComment = z.infer<typeof insertBomCommentSchema>;
+export type SystemSettings = typeof systemSettings.$inferSelect;
+export type InsertSystemSettings = z.infer<typeof insertSystemSettingsSchema>;
