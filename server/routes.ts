@@ -23,6 +23,11 @@ export async function registerRoutes(
   await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_last_final BOOLEAN DEFAULT FALSE");
   await query("UPDATE boq_versions SET is_last_final = FALSE WHERE is_last_final IS NULL");
 
+  // Performance indexes for BOM/BOQ
+  await query("CREATE INDEX IF NOT EXISTS idx_boq_items_version_id ON boq_items (version_id)");
+  await query("CREATE INDEX IF NOT EXISTS idx_boq_versions_project_id ON boq_versions (project_id)");
+  await query("CREATE INDEX IF NOT EXISTS idx_boq_projects_status ON boq_projects (project_status)");
+
   // ==================== AUDIT / SPY ROUTES ====================
 
   // GET /api/audit/logs - Fetch activity logs for the Spy Dashboard
@@ -4854,6 +4859,39 @@ export async function registerRoutes(
         res.status(500).json({ message: "Failed to fetch projects" });
       }
     },
+  );
+
+  // GET /api/boq-projects/metadata - Lightweight project list (id and name only)
+  app.get(
+    "/api/boq-projects/metadata",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const user = (req as any).user;
+        let queryStr = `SELECT id, name FROM boq_projects`;
+        const params: any[] = [];
+        const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
+
+        if (!privilegedRoles.includes(user?.role)) {
+          queryStr += ` WHERE id IN (SELECT project_id FROM user_project_permissions WHERE user_id = $1)`;
+          params.push(user.id);
+        }
+
+        queryStr += ` ORDER BY name ASC`;
+        const result = await query(queryStr, params);
+
+        const archivedIds = archiveService.getArchivedItemIds('boq_projects');
+        const trashedIds = archiveService.getTrashedItemIds('boq_projects');
+        const filtered = (result.rows || []).filter(
+          (r: any) => !archivedIds.includes(r.id) && !trashedIds.includes(r.id)
+        );
+
+        res.json({ projects: filtered || [] });
+      } catch (err) {
+        console.error("GET /api/boq-projects/metadata error", err);
+        res.status(500).json({ message: "Failed to fetch project metadata" });
+      }
+    }
   );
 
   // GET /api/boq-projects/:projectId - Get a specific project
@@ -10598,12 +10636,12 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
   // GET /api/historical-rates - Fetch historical Supply and Labour rates for a specific product
   app.get("/api/historical-rates", authMiddleware, async (req: Request, res: Response) => {
     try {
-      const { productId } = req.query;
+      const { productId, type } = req.query;
       if (!productId) {
         return res.status(400).json({ message: "productId is required" });
       }
 
-      console.log(`[DEBUG] Fetching historical rates for productId: ${productId}`);
+      console.log(`[DEBUG] Fetching historical rates for productId: ${productId}, type: ${type}`);
 
       // Fetch last 100 projects where this product was used
       // We look in table_data JSON for product_id or material_id
@@ -10617,6 +10655,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         JOIN boq_versions v ON bi.version_id = v.id
         JOIN boq_projects p ON v.project_id = p.id
         WHERE v.type = 'boq'
+          AND v.status = 'approved'
           AND (bi.table_data->>'product_id' = $1 OR bi.table_data->>'material_id' = $1)
         ORDER BY v.updated_at DESC
         LIMIT 100
@@ -10629,35 +10668,41 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         if (typeof td === 'string') {
           try { td = JSON.parse(td); } catch (e) { td = {}; }
         }
-        
+
         const cols = td.finalize_columns || [];
         const vals = td.finalize_column_values?.['0'] || {};
-        
+
         let supplyRate = null;
         let labourRate = null;
 
         // Requirement: Fetch EXACT stored values from custom columns
+        // STRICT filtering to prevent mixing supply and labour data
         cols.forEach((col: any) => {
           const colName = typeof col === 'string' ? col : col.name;
           const lower = colName.toLowerCase();
           const val = vals[colName];
-          
+
           if (val !== undefined && val !== null && val !== "") {
-            const parsedVal = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : parseFloat(val);
+            const parsedVal = typeof val === 'string' ? parseFloat(val.replace(/[^\d.]/g, '')) : parseFloat(val);
             if (isNaN(parsedVal) || parsedVal <= 0) return;
 
-            // Supply Rate match
-            if (lower.includes("supply") && lower.includes("rate")) {
+            // Supply Rate match: Must have 'supply' and 'rate', but NO 'labour', 'labor', 'install', or 'override'
+            if (lower.includes("supply") && lower.includes("rate") &&
+              !lower.includes("labour") && !lower.includes("labor") && !lower.includes("install") && !lower.includes("override")) {
               supplyRate = parsedVal;
-            } 
-            // Labour/Install Rate match
-            else if ((lower.includes("labour") || lower.includes("labor") || lower.includes("install")) && lower.includes("rate")) {
+            }
+            // Labour/Install Rate match: Must have 'labour'/'labor'/'install' and 'rate', but NO 'supply' or 'override'
+            else if ((lower.includes("labour") || lower.includes("labor") || lower.includes("install")) &&
+              lower.includes("rate") && !lower.includes("supply") && !lower.includes("override")) {
               labourRate = parsedVal;
             }
           }
         });
 
-        if (supplyRate === null && labourRate === null) return null;
+        // Filter based on requested type if provided
+        if (type === 'supply' && supplyRate === null) return null;
+        if (type === 'labour' && labourRate === null) return null;
+        if (!type && supplyRate === null && labourRate === null) return null;
 
         return {
           projectName: row.project_name,
@@ -10668,7 +10713,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
           qty: td.finalize_qty || null,
           total: td.finalize_override_total || null
         };
-      }).filter(Boolean);
+      }).filter(Boolean).slice(0, 5); // Limit to latest 5 entries
 
       console.log(`[DEBUG] Returning ${history.length} historical entries after filtering`);
       res.json({ history });

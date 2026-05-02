@@ -1101,31 +1101,51 @@ export default function CreateSketchPlan() {
     });
   }, []);
 
-  // Load initial data
+  // Load initial data - Progressive population
   useEffect(() => {
-    const loadInitialData = async () => {
-      setInitialLoading(true);
+    let isMounted = true;
+
+    const loadCategories = async () => {
       try {
-        const fetchPromises = [
-          apiFetch("/api/categories"),
-          !isSupplier ? apiFetch("/api/boq-projects") : Promise.resolve(null),
-          paramId ? apiFetch(`/api/sketch-plans/${paramId}`) : Promise.resolve(null)
-        ];
-
-        const [catRes, projectsRes, planRes] = await Promise.all(fetchPromises);
-
-        if (catRes && catRes.ok) {
-          const catData = await catRes.json();
+        const res = await apiFetch("/api/categories");
+        if (res.ok && isMounted) {
+          const catData = await res.json();
           setCategories(catData.categories || []);
         }
+      } catch (e) { console.error("Categories fetch failed", e); }
+    };
 
-        if (projectsRes && projectsRes.ok) {
-          const data = await projectsRes.json();
+    const loadProjectsMetadata = async () => {
+      if (isSupplier) return;
+      try {
+        const res = await apiFetch("/api/boq-projects/metadata");
+        if (res.ok && isMounted) {
+          const data = await res.json();
           setProjects(data.projects || []);
         }
+      } catch (e) { console.error("Projects fetch failed", e); }
+    };
 
-        if (planRes && planRes.ok) {
-          const data = await planRes.json();
+    const loadPlanDetails = async () => {
+      if (!paramId) {
+        const templateDataStr = sessionStorage.getItem("sketch_template_data");
+        if (templateDataStr && isMounted) {
+          try {
+            const td = JSON.parse(templateDataStr);
+            if (td.items) setItems(td.items.map((it: any) => ({ ...it, id: `ski-${Date.now()}-${Math.random()}`, preImages: it.preImages || [], postImages: it.postImages || [], images: [] })));
+            if (td.location) setLocationStr(td.location);
+            sessionStorage.removeItem("sketch_template_data");
+            toast({ title: "Template Applied", description: "Form pre-filled from template" });
+          } catch (e) { console.error("Template parse failed", e); }
+        }
+        if (isMounted) setInitialLoading(false);
+        return;
+      }
+
+      try {
+        const res = await apiFetch(`/api/sketch-plans/${paramId}`);
+        if (res.ok && isMounted) {
+          const data = await res.json();
           const p = data.plan;
           setName(p.name || "");
           setProjectId(p.project_id || "none");
@@ -1133,12 +1153,10 @@ export default function CreateSketchPlan() {
           setLocationStr(p.location || "");
           if (p.plan_date) setPlanDate(new Date(p.plan_date).toISOString().split("T")[0]);
 
-          // Lock Info
           setIsLocked(!!p.is_locked);
           setRequestStatus(p.request_status || "none");
           setRequestReason(p.request_reason || "");
 
-          // Optimize image mapping using a Map for O(1) lookup
           const imagesByItemId = new Map<string, any[]>();
           if (data.images && Array.isArray(data.images)) {
             data.images.forEach((img: any) => {
@@ -1149,70 +1167,33 @@ export default function CreateSketchPlan() {
             });
           }
 
-          // Map items and their images
           const seenIds = new Set();
           const mappedItems = (data.items || [])
-            .filter((it: any) => {
-              if (!it.id || seenIds.has(it.id)) return false;
-              seenIds.add(it.id);
-              return true;
-            })
+            .filter((it: any) => it.id && !seenIds.has(it.id) && seenIds.add(it.id))
             .map((it: any) => {
               const itemImages = imagesByItemId.get(it.id) || [];
               const preImages: PlanImage[] = [];
               const postImages: PlanImage[] = [];
-
               itemImages.forEach((img: any) => {
                 const cleanedName = (img.image_name || img.name || "").replace(/^(PRE_|POST_)/, "");
-                const mappedImg = {
-                  id: img.id,
-                  url: img.image_url,
-                  name: cleanedName || `Photo ${img.id.split('-').pop()}`
-                };
-
-                if ((img.image_name || img.name || "").startsWith("POST_")) {
-                  postImages.push(mappedImg);
-                } else {
-                  preImages.push(mappedImg);
-                }
+                const mappedImg = { id: img.id, url: img.image_url, name: cleanedName || `Photo ${img.id.split('-').pop()}` };
+                if ((img.image_name || img.name || "").startsWith("POST_")) postImages.push(mappedImg);
+                else preImages.push(mappedImg);
               });
-
               return { ...it, preImages, postImages, images: [] };
             });
 
-          if (mappedItems.length > 0) {
-            setItems(mappedItems);
-          } else {
-            setItems([{
-              id: `ski-${Date.now()}`,
-              item_name: "", description: "", length: "", width: "", height: "", qty: "1",
-              unit: "Nos", dimension_unit: "feet", category: "", remarks: "",
-              preImages: [], postImages: [], images: []
-            }]);
-          }
+          setItems(mappedItems.length > 0 ? mappedItems : [{ id: `ski-${Date.now()}`, item_name: "", description: "", length: "", width: "", height: "", qty: "1", unit: "Nos", dimension_unit: "feet", category: "", remarks: "", preImages: [], postImages: [], images: [] }]);
 
-          // Plan-level images
           const plImages = (data.images || [])
             .filter((img: any) => !img.item_id)
-            .map((img: any) => ({
-              id: img.id,
-              url: img.image_url,
-              name: img.image_name || img.name || `Site Photo ${img.id.split('-').pop()}`
-            }));
+            .map((img: any) => ({ id: img.id, url: img.image_url, name: img.image_name || img.name || `Site Photo ${img.id.split('-').pop()}` }));
           setPlanImages(plImages);
 
-          // Attachments
           if (data.attachments && Array.isArray(data.attachments)) {
-            const mappedAtts: PlanAttachment[] = data.attachments.map((att: any) => ({
-              id: att.id,
-              url: att.file_url,
-              name: att.file_name,
-              type: att.file_type as any
-            }));
-            setAttachments(mappedAtts);
+            setAttachments(data.attachments.map((att: any) => ({ id: att.id, url: att.file_url, name: att.file_name, type: att.file_type as any })));
           }
 
-          // Initialize lastSavedRef
           lastSavedRef.current = JSON.stringify({
             name: p.name || "",
             project_id: p.project_id || "none",
@@ -1222,28 +1203,19 @@ export default function CreateSketchPlan() {
             images: plImages.map((img: any) => ({ item_id: null, image_url: img.url, name: img.name })),
             attachments: data.attachments || []
           });
-        } else if (!paramId) {
-          const templateDataStr = sessionStorage.getItem("sketch_template_data");
-          if (templateDataStr) {
-            try {
-              const td = JSON.parse(templateDataStr);
-              if (td.items) setItems(td.items.map((it: any) => ({ ...it, id: Date.now().toString() + Math.random(), preImages: it.preImages || [], postImages: it.postImages || [], images: [] })));
-              if (td.location) setLocationStr(td.location);
-              sessionStorage.removeItem("sketch_template_data");
-              toast({ title: "Template Applied", description: "Form pre-filled from template" });
-            } catch (e) {
-              console.error("Failed to parse template data", e);
-            }
-          }
         }
       } catch (err) {
-        console.error("Failed to load initial data", err);
+        console.error("Failed to load plan details", err);
       } finally {
-        setInitialLoading(false);
+        if (isMounted) setInitialLoading(false);
       }
     };
 
-    loadInitialData();
+    loadCategories();
+    loadProjectsMetadata();
+    loadPlanDetails();
+
+    return () => { isMounted = false; };
   }, [paramId]);
   // Only run when URL parameter changes
 
@@ -1755,6 +1727,42 @@ export default function CreateSketchPlan() {
         if (!currentId && data.id) {
           setCurrentId(data.id);
         }
+
+        // CRITICAL: Sync items with server IDs to prevent duplication on next save
+        if (data.items && Array.isArray(data.items)) {
+          const imagesByItemId = new Map<string, any[]>();
+          if (data.images && Array.isArray(data.images)) {
+            data.images.forEach((img: any) => {
+              if (img.item_id) {
+                if (!imagesByItemId.has(img.item_id)) imagesByItemId.set(img.item_id, []);
+                imagesByItemId.get(img.item_id)?.push(img);
+              }
+            });
+          }
+
+          const seenIds = new Set();
+          const syncedItems = data.items
+            .filter((it: any) => {
+              if (!it.id || seenIds.has(it.id)) return false;
+              seenIds.add(it.id);
+              return true;
+            })
+            .map((it: any) => {
+              const itemImages = imagesByItemId.get(it.id) || [];
+              const preImages: PlanImage[] = [];
+              const postImages: PlanImage[] = [];
+              itemImages.forEach((img: any) => {
+                const cleanedName = (img.image_name || img.name || "").replace(/^(PRE_|POST_)/, "");
+                const mappedImg = { id: img.id, url: img.image_url, name: cleanedName || `Photo ${img.id.split('-').pop()}` };
+                if ((img.image_name || img.name || "").startsWith("POST_")) postImages.push(mappedImg);
+                else preImages.push(mappedImg);
+              });
+              return { ...it, preImages, postImages, images: [] };
+            });
+
+          if (syncedItems.length > 0) setItems(syncedItems);
+        }
+
         toast({ title: "Success", description: "Plan saved successfully" });
       } else {
         const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
@@ -2303,1162 +2311,1185 @@ export default function CreateSketchPlan() {
   return (
     <LayoutComponent {...(isSupplier ? { shopName: "", shopLocation: "", shopApproved: true } : {})}>
       <div className="max-w-7xl mx-auto space-y-2 pb-20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-wrap">
-            <Button variant="ghost" size="icon" onClick={() => setLocation("/sketch-plans")} className="hover:bg-slate-100 h-7 w-7">
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-            <h1 className="text-lg font-bold tracking-tight text-slate-800">{isSupplier ? "View Sketch Plan" : (isEditing ? "Edit Sketch Plan" : "Create New Sketch Plan")}</h1>
-
-            {/* Version dropdown - only shown when editing */}
-            {isEditing && siblingVersions.length > 0 && (
-              <div className="flex items-center gap-2 ml-2">
-                <span className="text-xs text-slate-500 font-bold uppercase">Ver:</span>
-                <Select
-                  value={currentId || ''}
-                  onValueChange={(val) => val !== currentId && setLocation(`/edit-sketch-plan/${val}`)}
-                >
-                  <SelectTrigger className="h-8 w-24 text-xs font-bold border-indigo-200 bg-indigo-50 text-indigo-700">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {siblingVersions.map(v => (
-                      <SelectItem key={v.id} value={v.id} className="text-xs font-medium">
-                        V{v.version_number || 1} {v.is_locked ? '🔒' : ''} {v.version_status === 'approved' ? '✅' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        {initialLoading ? (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+            <div className="relative">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-10 w-10 bg-indigo-50 rounded-full animate-pulse"></div>
               </div>
-            )}
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-indigo-900 font-bold text-lg animate-pulse tracking-tight">Initializing Workspace</p>
+              <p className="text-slate-400 text-xs font-medium">Preparing your sketch plan details...</p>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsPdfDialogOpen(true)} className="gap-1.5 h-8 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-50">
-              <FileText className="w-3 h-3" /> Export
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setIsEmailDialogOpen(true)} className="gap-1.5 h-8 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-50">
-              <MessageSquare className="w-3 h-3" /> Email Plan
-            </Button>
-            {userRole !== "supplier" && (
-              <Button variant="outline" size="sm" onClick={() => {
-                const templateName = prompt("Enter a name for this template:", name);
-                if (templateName) {
-                  apiFetch("/api/sketch-templates", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: templateName, template_data: { items, location: locationStr } })
-                  }).then(res => res.ok && toast({ title: "Success", description: "Template saved" }));
-                }
-              }} className="gap-1.5 h-8 text-[10px]">
-                <Layers className="w-3 h-3" /> Save as Template
-              </Button>
-            )}
-            {userRole !== "supplier" && (
-              <Button variant="outline" size="sm" onClick={findDuplicatesInCurrentPlan} className="gap-1.5 h-8 text-[10px] border-amber-200 text-amber-600 hover:bg-amber-50">
-                <Copy className="w-3 h-3" /> Check Duplicates
-              </Button>
-            )}
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button variant="ghost" size="icon" onClick={() => setLocation("/sketch-plans")} className="hover:bg-slate-100 h-7 w-7">
+                  <ArrowLeft className="w-4 h-4" />
+                </Button>
+                <h1 className="text-lg font-bold tracking-tight text-slate-800">{isSupplier ? "View Sketch Plan" : (isEditing ? "Edit Sketch Plan" : "Create New Sketch Plan")}</h1>
 
-            {userRole !== "supplier" && (
-              <Button onClick={savePlan} disabled={saving || isLocked} className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white h-8 px-4 text-[10px] font-bold shadow-sm">
-                <Save className="w-3 h-3" /> {saving ? "Saving..." : "Save Plan"}
-              </Button>
-            )}
-
-            {/* Delete Version Button */}
-            {isEditing && userRole !== 'supplier' && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8 w-8 p-0 text-red-500 border-red-200 hover:bg-red-50"
-                onClick={handleDeleteVersion}
-                disabled={saving || isLocked}
-                title="Delete this version"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            )}
-
-            {/* New Version Button */}
-            {isEditing && userRole !== 'supplier' && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8 text-[10px] text-violet-600 border-violet-200 hover:bg-violet-50"
-                onClick={() => setShowNewVersionDialog(true)}
-                title="Create a new version of this plan"
-              >
-                <GitBranch className="w-3 h-3" />
-                New Version
-              </Button>
-            )}
-
-            {isEditing && (
-              <div className="flex items-center gap-2 border-l pl-2 ml-1">
-                {isLocked ? (
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 gap-1 py-1 h-9">
-                      <Lock className="w-3 h-3" /> LOCKED
-                    </Badge>
-                    {isAdmin ? (
-                      <div className="flex gap-1">
-                        {requestStatus === 'pending' && (
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button size="sm" variant="outline" className="h-9 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-100">
-                                <ShieldAlert className="w-3.5 h-3.5" /> Review Request
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-80">
-                              <div className="space-y-4">
-                                <div className="space-y-2">
-                                  <h4 className="font-bold leading-none">Edit Request</h4>
-                                  <p className="text-sm text-slate-500 italic">"{requestReason}"</p>
-                                </div>
-                                <div className="flex gap-2">
-                                  <Button size="sm" className="bg-green-600 hover:bg-green-700 flex-1" onClick={() => handleAdminUnlock('approve')}>Approve</Button>
-                                  <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 flex-1" onClick={() => handleAdminUnlock('reject')}>Reject</Button>
-                                </div>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        )}
-                        <Button size="sm" variant="outline" onClick={() => handleAdminUnlock('approve')} className="h-9 gap-1.5 border-indigo-200 text-indigo-700">
-                          <Unlock className="w-3.5 h-3.5" /> Force Unlock
-                        </Button>
-                      </div>
-                    ) : (
-                      requestStatus === 'pending' ? (
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 h-9">
-                          Request Pending...
-                        </Badge>
-                      ) : (
-                        <Dialog open={showUnlockDialog} onOpenChange={setShowUnlockDialog}>
-                          <DialogTrigger asChild>
-                            <Button size="sm" variant="outline" className="h-9 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50">
-                              <Pencil className="w-3.5 h-3.5" /> Request Edit
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Request Edit Permission</DialogTitle>
-                            </DialogHeader>
-                            <div className="py-4 space-y-4">
-                              <div className="space-y-2">
-                                <Label>Reason for Editing</Label>
-                                <Textarea
-                                  placeholder="Explain why you need to modify this locked plan..."
-                                  value={unlockReason}
-                                  onChange={(e) => setUnlockReason(e.target.value)}
-                                />
-                              </div>
-                            </div>
-                            <DialogFooter>
-                              <Button variant="outline" onClick={() => setShowUnlockDialog(false)}>Cancel</Button>
-                              <Button className="bg-indigo-600" disabled={submittingRequest} onClick={handleRequestUnlock}>
-                                {submittingRequest ? "Sending..." : "Submit Request"}
-                              </Button>
-                            </DialogFooter>
-                          </DialogContent>
-                        </Dialog>
-                      )
-                    )}
+                {/* Version dropdown - only shown when editing */}
+                {isEditing && siblingVersions.length > 0 && (
+                  <div className="flex items-center gap-2 ml-2">
+                    <span className="text-xs text-slate-500 font-bold uppercase">Ver:</span>
+                    <Select
+                      value={currentId || ''}
+                      onValueChange={(val) => val !== currentId && setLocation(`/edit-sketch-plan/${val}`)}
+                    >
+                      <SelectTrigger className="h-8 w-24 text-xs font-bold border-indigo-200 bg-indigo-50 text-indigo-700">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {siblingVersions.map(v => (
+                          <SelectItem key={v.id} value={v.id} className="text-xs font-medium">
+                            V{v.version_number || 1} {v.is_locked ? '🔒' : ''} {v.version_status === 'approved' ? '✅' : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
-                  <Button size="sm" variant="outline" onClick={handleLockPlan} className="h-9 gap-1.5 border-slate-200 text-slate-600 hover:text-amber-700 hover:border-amber-300">
-                    <Lock className="w-3.5 h-3.5" /> Lock Plan
-                  </Button>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-
-        <div className={cn("space-y-4 transition-all duration-300 relative", isLocked && "opacity-[0.9] grayscale-[10%]")}>
-          {isLocked && (
-            <div className="absolute inset-0 z-40 rounded-xl pointer-events-none" title="Plan is locked" aria-hidden="true" />
-          )}
-
-          {/* Basic Details - Compact */}
-          <Card className="border-slate-200 shadow-sm relative z-10">
-            <CardContent className="p-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-              <div className="space-y-1 col-span-1 md:col-span-3">
-                <Label className="text-[10px] uppercase font-bold text-slate-500">Plan Name</Label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className={cn("h-8 text-xs", !name.trim() && "border-red-300 bg-red-50 focus:ring-red-500")}
-                  placeholder="Enter Plan Name (Required)"
-                  disabled={isLocked || userRole === "supplier"}
-                />
-              </div>
-              <div className="space-y-1 col-span-1 md:col-span-3">
-                <Label className="text-[10px] uppercase font-bold text-slate-500">Associated Project</Label>
-                <Popover open={projectOpen} onOpenChange={setProjectOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={projectOpen}
-                      className="w-full justify-between h-8 text-xs font-normal px-2"
-                      disabled={isLocked || isSupplier}
-                    >
-                      <span className="truncate">
-                        {projectId !== "none"
-                          ? (projects.find((proj) => proj.id === projectId)?.name || projectName || "Select project...")
-                          : "No Project"}
-                      </span>
-                      <Search className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search project..." />
-                      <CommandList>
-                        <CommandEmpty>No project found.</CommandEmpty>
-                        <CommandGroup>
-                          <CommandItem
-                            onSelect={() => {
-                              setProjectId("none");
-                              setProjectOpen(false);
-                            }}
-                          >
-                            No Project
-                          </CommandItem>
-                          {projects.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((project) => (
-                            <CommandItem
-                              key={project.id}
-                              onSelect={() => {
-                                setProjectId(project.id);
-                                setProjectOpen(false);
-                              }}
-                            >
-                              {project.name}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-1 col-span-1 md:col-span-2">
-                <Label className="text-[10px] uppercase font-bold text-slate-500">Plan Date</Label>
-                <Input type="date" value={planDate} onChange={(e) => setPlanDate(e.target.value)} className="h-8 text-xs" disabled={isLocked || userRole === "supplier"} />
-              </div>
-              <div className="space-y-1 col-span-1 md:col-span-4">
-                <Label className="text-[10px] uppercase font-bold text-slate-500">Site Location / Address</Label>
-                <Input value={locationStr} onChange={(e) => setLocationStr(e.target.value)} className="h-8 text-xs" placeholder="Address" disabled={isLocked || userRole === "supplier"} />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Enhanced Items Section */}
-          {/* Project Items - Main Workspace */}
-          <div className="sticky top-0 z-20 bg-white shadow-sm border-b border-slate-200 p-4 rounded-lg mb-4 flex flex-col gap-4">
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-              <div className="flex items-center gap-2 w-full md:w-auto flex-1">
-                <div className="relative w-full max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search item name or notes..."
-                    className="pl-9 h-10 border-slate-200 shadow-sm focus:ring-indigo-500"
-                  />
-                </div>
-                <Select value={sortBy} onValueChange={handleSort}>
-                  <SelectTrigger className="w-[160px] h-10 bg-white">
-                    <div className="flex items-center gap-2">
-                      <ArrowDownAz className="w-4 h-4 text-slate-400" />
-                      <SelectValue placeholder="Sort Items" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="z-[110]">
-                    <SelectItem value="none">Manual Order</SelectItem>
-                    <SelectItem value="name-asc">Item Sort (A-Z)</SelectItem>
-                    <SelectItem value="name-desc">Item Sort (Z-A)</SelectItem>
-                    <SelectItem value="category-asc">Category Sort (A-Z)</SelectItem>
-                    <SelectItem value="category-desc">Category Sort (Z-A)</SelectItem>
-                    <SelectItem value="notes-asc">Notes Sort (A-Z)</SelectItem>
-                    <SelectItem value="notes-desc">Notes Sort (Z-A)</SelectItem>
-                    <SelectItem value="qty-desc">Qty Sort (High to Low)</SelectItem>
-                    <SelectItem value="qty-asc">Qty Sort (Low to High)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-3 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
-                <Label htmlFor="compact-mode" className="text-xs font-bold text-slate-600 cursor-pointer">Compact View</Label>
-                <Checkbox
-                  id="compact-mode"
-                  checked={isCompact}
-                  onCheckedChange={(checked) => setIsCompact(!!checked)}
-                />
-              </div>
-            </div>
-
-            {/* Category Tabs - Horizontal Scrolling */}
-            <div className="border-t pt-3 relative bg-slate-50/30 px-4 -mx-4">
-              <div className="overflow-x-auto pb-1 custom-scrollbar scroll-smooth">
-                <Tabs value={categoryFilter} onValueChange={setCategoryFilter} className="w-full">
-                  <TabsList className="bg-transparent p-0 w-max flex justify-start h-10 flex-nowrap gap-1">
-                    <TabsTrigger value="all" className="text-[10px] font-black px-6 h-9 uppercase tracking-widest rounded-t-lg border-x border-t border-transparent data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-indigo-600 transition-all">
-                      All ({items.length})
-                    </TabsTrigger>
-                    {Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort().map(cat => (
-                      <TabsTrigger key={cat as string} value={cat as string} className="text-[10px] font-black px-6 h-9 uppercase tracking-widest rounded-t-lg border-x border-t border-transparent data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-indigo-600 transition-all">
-                        {cat as string} ({items.filter(it => it.category === cat).length})
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-              </div>
-            </div>
-          </div>
-
-          <Card className="border-slate-200 shadow-sm overflow-hidden">
-            <CardHeader className="bg-slate-50/50 py-3 border-b flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-bold flex items-center gap-2">
-                <FileText className="w-4 h-4 text-indigo-500" /> Project Itemized Requirements
-              </CardTitle>
               <div className="flex gap-2">
-                {userRole === "supplier" && currentId && (
-                  <Button
-                    onClick={handleLoadToProposal}
-                    disabled={loadingToProposal}
-                    size="sm"
-                    className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    {loadingToProposal ? "Loading..." : "Load to Proposal"}
+                <Button variant="outline" size="sm" onClick={() => setIsPdfDialogOpen(true)} className="gap-1.5 h-8 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-50">
+                  <FileText className="w-3 h-3" /> Export
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setIsEmailDialogOpen(true)} className="gap-1.5 h-8 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-50">
+                  <MessageSquare className="w-3 h-3" /> Email Plan
+                </Button>
+                {userRole !== "supplier" && (
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const templateName = prompt("Enter a name for this template:", name);
+                    if (templateName) {
+                      apiFetch("/api/sketch-templates", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: templateName, template_data: { items, location: locationStr } })
+                      }).then(res => res.ok && toast({ title: "Success", description: "Template saved" }));
+                    }
+                  }} className="gap-1.5 h-8 text-[10px]">
+                    <Layers className="w-3 h-3" /> Save as Template
                   </Button>
-                )}
-                {selectedItemIds.size > 0 && !isSupplier && (
-                  <>
-                    <Button
-                      onClick={() => { setShowAssignCategoryDialog(true); }}
-                      size="sm"
-                      variant="outline"
-                      className="h-8 gap-1 border-indigo-500 text-indigo-600 hover:bg-blue-50"
-                    >
-                      <Layers className="w-3.5 h-3.5" /> Assign Category ({selectedItemIds.size})
-                    </Button>
-                    <Button
-                      onClick={() => { loadUsers(); setShowAssignUserDialog(true); }}
-                      size="sm"
-                      variant="outline"
-                      className="h-8 gap-1 border-blue-500 text-blue-600 hover:bg-blue-50"
-                    >
-                      <Users className="w-3.5 h-3.5" /> Assign to User ({selectedItemIds.size})
-                    </Button>
-                    <Button
-                      onClick={() => { loadVendors(); setShowAssignDialog(true); }}
-                      size="sm"
-                      variant="outline"
-                      className="h-8 gap-1 border-amber-500 text-amber-600 hover:bg-amber-50"
-                    >
-                      Assign to Vendor ({selectedItemIds.size})
-                    </Button>
-                  </>
                 )}
                 {userRole !== "supplier" && (
-                  <Button onClick={addItem} size="sm" variant="outline" className="h-8 gap-1 border-indigo-200 text-indigo-600 hover:bg-indigo-50" disabled={isLocked}>
-                    <Plus className="w-3.5 h-3.5" /> Add New Row
+                  <Button variant="outline" size="sm" onClick={findDuplicatesInCurrentPlan} className="gap-1.5 h-8 text-[10px] border-amber-200 text-amber-600 hover:bg-amber-50">
+                    <Copy className="w-3 h-3" /> Check Duplicates
                   </Button>
                 )}
-                <Button onClick={() => setLocation("/sketch-plans")} size="sm" variant="ghost" className="h-8 text-slate-500">
-                  Cancel
-                </Button>
-              </div>
-            </CardHeader>
 
-            {/* Top Navigation Bar */}
-            <div className="py-2.5 px-4 border-b bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 gap-1.5 font-bold text-[10px] uppercase tracking-widest border-slate-200 text-slate-600 hover:bg-white shadow-sm"
-                  onClick={() => {
-                    if (currentPage > 1) {
-                      setCurrentPage(prev => prev - 1);
-                    } else {
-                      const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter((c): c is string => Boolean(c)))).sort()];
-                      const currentIdx = catList.indexOf(categoryFilter);
-                      if (currentIdx > 0) {
-                        setCategoryFilter(catList[currentIdx - 1]);
-                        setCurrentPage(1);
-                      }
-                    }
-                  }}
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
-                </Button>
+                {userRole !== "supplier" && (
+                  <Button onClick={savePlan} disabled={saving || isLocked} className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white h-8 px-4 text-[10px] font-bold shadow-sm">
+                    <Save className="w-3 h-3" /> {saving ? "Saving..." : "Save Plan"}
+                  </Button>
+                )}
 
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    {totalPages > 1 && Array.from({ length: totalPages }).map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setCurrentPage(i + 1)}
-                        className={cn(
-                          "w-7 h-7 rounded-full text-[10px] font-bold transition-all",
-                          currentPage === i + 1 ? "bg-indigo-600 text-white shadow-md scale-105" : "bg-white text-slate-400 hover:text-indigo-600 border border-slate-100"
+                {/* Delete Version Button */}
+                {isEditing && userRole !== 'supplier' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-8 w-8 p-0 text-red-500 border-red-200 hover:bg-red-50"
+                    onClick={handleDeleteVersion}
+                    disabled={saving || isLocked}
+                    title="Delete this version"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+
+                {/* New Version Button */}
+                {isEditing && userRole !== 'supplier' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-8 text-[10px] text-violet-600 border-violet-200 hover:bg-violet-50"
+                    onClick={() => setShowNewVersionDialog(true)}
+                    title="Create a new version of this plan"
+                  >
+                    <GitBranch className="w-3 h-3" />
+                    New Version
+                  </Button>
+                )}
+
+                {isEditing && (
+                  <div className="flex items-center gap-2 border-l pl-2 ml-1">
+                    {isLocked ? (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 gap-1 py-1 h-9">
+                          <Lock className="w-3 h-3" /> LOCKED
+                        </Badge>
+                        {isAdmin ? (
+                          <div className="flex gap-1">
+                            {requestStatus === 'pending' && (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button size="sm" variant="outline" className="h-9 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-100">
+                                    <ShieldAlert className="w-3.5 h-3.5" /> Review Request
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-80">
+                                  <div className="space-y-4">
+                                    <div className="space-y-2">
+                                      <h4 className="font-bold leading-none">Edit Request</h4>
+                                      <p className="text-sm text-slate-500 italic">"{requestReason}"</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Button size="sm" className="bg-green-600 hover:bg-green-700 flex-1" onClick={() => handleAdminUnlock('approve')}>Approve</Button>
+                                      <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 flex-1" onClick={() => handleAdminUnlock('reject')}>Reject</Button>
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => handleAdminUnlock('approve')} className="h-9 gap-1.5 border-indigo-200 text-indigo-700">
+                              <Unlock className="w-3.5 h-3.5" /> Force Unlock
+                            </Button>
+                          </div>
+                        ) : (
+                          requestStatus === 'pending' ? (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 h-9">
+                              Request Pending...
+                            </Badge>
+                          ) : (
+                            <Dialog open={showUnlockDialog} onOpenChange={setShowUnlockDialog}>
+                              <DialogTrigger asChild>
+                                <Button size="sm" variant="outline" className="h-9 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50">
+                                  <Pencil className="w-3.5 h-3.5" /> Request Edit
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Request Edit Permission</DialogTitle>
+                                </DialogHeader>
+                                <div className="py-4 space-y-4">
+                                  <div className="space-y-2">
+                                    <Label>Reason for Editing</Label>
+                                    <Textarea
+                                      placeholder="Explain why you need to modify this locked plan..."
+                                      value={unlockReason}
+                                      onChange={(e) => setUnlockReason(e.target.value)}
+                                    />
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button variant="outline" onClick={() => setShowUnlockDialog(false)}>Cancel</Button>
+                                  <Button className="bg-indigo-600" disabled={submittingRequest} onClick={handleRequestUnlock}>
+                                    {submittingRequest ? "Sending..." : "Submit Request"}
+                                  </Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          )
                         )}
-                      >
-                        {i + 1}
-                      </button>
-                    ))}
-                    {totalPages <= 1 && (
-                      <Badge variant="outline" className="bg-white text-indigo-900 border-indigo-100 text-[9px] font-bold px-2 py-0.5 uppercase tracking-tighter">
-                        Single Page
-                      </Badge>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={handleLockPlan} className="h-9 gap-1.5 border-slate-200 text-slate-600 hover:text-amber-700 hover:border-amber-300">
+                        <Lock className="w-3.5 h-3.5" /> Lock Plan
+                      </Button>
                     )}
                   </div>
-                  <div className="h-4 w-px bg-slate-200 mx-1" />
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-black text-indigo-900 uppercase tracking-widest leading-none">
-                      {categoryFilter === "all" ? "Master View" : categoryFilter}
-                    </span>
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
-                      Page {currentPage} of {totalPages}
-                    </span>
-                  </div>
-                </div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 gap-1.5 font-bold text-[10px] uppercase tracking-widest border-slate-200 text-slate-600 hover:bg-white shadow-sm"
-                  onClick={() => {
-                    if (currentPage < totalPages) {
-                      setCurrentPage(prev => prev + 1);
-                    } else {
-                      const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter((c): c is string => Boolean(c)))).sort()];
-                      const currentIdx = catList.indexOf(categoryFilter);
-                      if (currentIdx < catList.length - 1) {
-                        setCategoryFilter(catList[currentIdx + 1]);
-                        setCurrentPage(1);
-                      }
-                    }
-                  }}
-                >
-                  Next <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-
-              <div className="hidden lg:flex items-center gap-1.5">
-                {["all", ...Array.from(new Set(items.map(it => it.category).filter((c): c is string => Boolean(c)))).sort()].map((cat, idx) => (
-                  <TooltipProvider key={cat}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div
-                          className={cn(
-                            "h-1.5 rounded-full transition-all cursor-pointer",
-                            categoryFilter === cat ? "w-8 bg-indigo-600" : "w-3 bg-slate-200 hover:bg-slate-300"
-                          )}
-                          onClick={() => setCategoryFilter(cat)}
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-[10px] font-bold">{cat === "all" ? "All Materials" : cat}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ))}
+                )}
               </div>
             </div>
 
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b">
-                      <th className={cn("w-12 px-2", isCompact ? "py-1" : "py-3")}>
-                        {!isSupplier && (
-                          <Checkbox
-                            checked={selectedItemIds.size === items.length && items.length > 0}
-                            onCheckedChange={toggleSelectAll}
-                          />
-                        )}
-                      </th>
-                      <th className={cn("w-10 px-2 text-left", isCompact ? "py-1" : "py-3")}>#</th>
-                      <th className={cn("w-[200px] min-w-[200px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Notes/Review</th>
-                      <th className={cn("w-[100px] min-w-[100px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Category</th>
-                      <th className={cn("w-[160px] min-w-[160px] max-w-[160px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Item/Product</th>
-                      <th className={cn("w-[60px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Unit</th>
-                      <th className={cn("w-[110px] min-w-[110px] max-w-[110px] px-2 text-center font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Dimensions</th>
-                      <th className={cn("w-[80px] min-w-[80px] max-w-[80px] px-2 text-center bg-indigo-50 font-bold text-indigo-700", isCompact ? "py-1" : "py-3")}>QTY</th>
-                      {!isSupplier && (
-                        <th className={cn("w-[100px] px-2 text-left font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Assignee</th>
-                      )}
-                      <th className={cn("w-[60px] px-2 text-center border-l bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Pre</th>
-                      <th className={cn("w-[60px] px-2 text-center bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Post</th>
-                      <th className={cn("w-10 px-2 text-center", isCompact ? "py-1" : "py-3")}>Del</th>
-                    </tr>
-                  </thead>
-                  <Reorder.Group as="tbody" axis="y" values={isFiltering ? items : items} onReorder={(newOrder) => {
-                    if (isFiltering) return;
-                    setItems(newOrder);
-                    if (sortBy !== "none") setSortBy("none");
-                  }} key={sortBy}>
-                    {paginatedItems.map((item, idx) => (
-                      <SketchPlanRow
-                        key={item.id}
-                        item={item}
-                        idx={items.indexOf(item)}
-                        itemsLength={items.length}
-                        isLocked={isLocked || userRole === "supplier"}
-                        isFiltering={isFiltering}
-                        isCompact={isCompact}
-                        updateItem={updateItem}
-                        removeItem={removeItem}
-                        moveItemToPosition={moveItemToPosition}
-                        selectMaterial={selectMaterial}
-                        searchResults={searchResults}
-                        searching={searching}
-                        loadMaterials={loadMaterials}
-                        materialSearch={materialSearch}
-                        setMaterialSearch={setMaterialSearch}
-                        openPopoverIdx={openPopoverIdx}
-                        setOpenPopoverIdx={setOpenPopoverIdx}
-                        renameRowImage={renameRowImage}
-                        removeRowImage={removeRowImage}
-                        handleRowImageUpload={handleRowImageUpload}
-                        setPreviewImage={setPreviewImage}
-                        lastSketchItemIdxRef={lastSketchItemIdxRef}
-                        setSketchTarget={setSketchTarget}
-                        setSketchInitialData={setSketchInitialData}
-                        toast={toast}
-                        setSketchDialogOpen={setSketchDialogOpen}
-                        isSelected={selectedItemIds.has(item.id)}
-                        toggleSelect={toggleSelectItem}
-                        userRole={userRole}
-                        onImageDragStart={handleImageDragStart}
-                        onImageDrop={handleImageDrop}
-                        addDimension={addDimension}
-                        removeDimension={removeDimension}
-                        updateDimension={updateDimension}
-                        cloneItem={cloneItem}
-                        categories={categories}
-                      />
-                    ))}
-                  </Reorder.Group>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+            <div className={cn("space-y-4 transition-all duration-300 relative", isLocked && "opacity-[0.9] grayscale-[10%]")}>
+              {isLocked && (
+                <div className="absolute inset-0 z-40 rounded-xl pointer-events-none" title="Plan is locked" aria-hidden="true" />
+              )}
 
-          {/* Bottom Utils */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
-            {/* Plan-level Site Photos */}
-            <Card className="border-slate-200 shadow-sm col-span-1 md:col-span-2 lg:col-span-1 flex flex-col">
-              <CardHeader className="bg-slate-50/50 py-2 border-b">
-                <CardTitle className="text-xs font-bold flex items-center gap-2">
-                  <Camera className="w-3.5 h-3.5 text-indigo-500" /> Plan-Level Site Photos
-                </CardTitle>
-              </CardHeader>
-              <CardContent
-                className={cn(
-                  "p-3 flex-1 overflow-y-auto max-h-[220px] relative z-20 transition-colors",
-                  !(isLocked || userRole === "supplier") && "min-h-[100px]"
-                )}
-                onDragOver={(e) => {
-                  if (isLocked || userRole === "supplier") return;
-                  e.preventDefault();
-                }}
-                onDrop={(e) => {
-                  if (isLocked || userRole === "supplier") return;
-                  handleImageDrop(e, { type: "main" });
-                }}
-              >
-                <div className="grid grid-cols-4 gap-2">
-                  {planImages.map((img, idx) => (
-                    <div
-                      key={idx}
-                      className={cn(
-                        "relative group aspect-square rounded border overflow-hidden bg-slate-100 transition-all",
-                        (isLocked || userRole === "supplier") ? "pointer-events-auto" : "cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-indigo-300"
-                      )}
-                      draggable={!(isLocked || userRole === "supplier")}
-                      onDragStart={(e) => handleImageDragStart(e, { type: "main", imgIdx: idx })}
-                    >
-                      <img src={img.url} className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setPreviewImage(img)} title="Click to view full image" />
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] p-1 truncate opacity-0 group-hover:opacity-100 transition-opacity pr-6 pointer-events-none">
-                        {img.name}
-                      </div>
-                      {!(isLocked || userRole === "supplier") && (
-                        <div className="absolute top-1 left-1 flex gap-1 z-10">
-                          <button onClick={() => {
-                            setSketchTarget("main");
-                            setSketchInitialData(img.url);
-                            lastSketchPlanImgIdxRef.current = idx;
-                            setSketchDialogOpen(true);
-                          }} className="bg-slate-800 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Edit in Sketch Editor">
-                            <Pencil className="w-3 h-3" />
-                          </button>
+              {/* Basic Details - Compact */}
+              <Card className="border-slate-200 shadow-sm relative z-10">
+                <CardContent className="p-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <div className="space-y-1 col-span-1 md:col-span-3">
+                    <Label className="text-[10px] uppercase font-bold text-slate-500">Plan Name</Label>
+                    <Input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className={cn("h-8 text-xs", !name.trim() && "border-red-300 bg-red-50 focus:ring-red-500")}
+                      placeholder="Enter Plan Name (Required)"
+                      disabled={isLocked || userRole === "supplier"}
+                    />
+                  </div>
+                  <div className="space-y-1 col-span-1 md:col-span-3">
+                    <Label className="text-[10px] uppercase font-bold text-slate-500">Associated Project</Label>
+                    <Popover open={projectOpen} onOpenChange={setProjectOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={projectOpen}
+                          className="w-full justify-between h-8 text-xs font-normal px-2"
+                          disabled={isLocked || isSupplier}
+                        >
+                          <span className="truncate">
+                            {projectId !== "none"
+                              ? (projects.find((proj) => proj.id === projectId)?.name || projectName || "Select project...")
+                              : "No Project"}
+                          </span>
+                          <Search className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[300px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Search project..." />
+                          <CommandList>
+                            <CommandEmpty>No project found.</CommandEmpty>
+                            <CommandGroup>
+                              <CommandItem
+                                onSelect={() => {
+                                  setProjectId("none");
+                                  setProjectOpen(false);
+                                }}
+                              >
+                                No Project
+                              </CommandItem>
+                              {projects.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((project) => (
+                                <CommandItem
+                                  key={project.id}
+                                  onSelect={() => {
+                                    setProjectId(project.id);
+                                    setProjectOpen(false);
+                                  }}
+                                >
+                                  {project.name}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-1 col-span-1 md:col-span-2">
+                    <Label className="text-[10px] uppercase font-bold text-slate-500">Plan Date</Label>
+                    <Input type="date" value={planDate} onChange={(e) => setPlanDate(e.target.value)} className="h-8 text-xs" disabled={isLocked || userRole === "supplier"} />
+                  </div>
+                  <div className="space-y-1 col-span-1 md:col-span-4">
+                    <Label className="text-[10px] uppercase font-bold text-slate-500">Site Location / Address</Label>
+                    <Input value={locationStr} onChange={(e) => setLocationStr(e.target.value)} className="h-8 text-xs" placeholder="Address" disabled={isLocked || userRole === "supplier"} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Enhanced Items Section */}
+              {/* Project Items - Main Workspace */}
+              <div className="sticky top-0 z-20 bg-white shadow-sm border-b border-slate-200 p-4 rounded-lg mb-4 flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                  <div className="flex items-center gap-2 w-full md:w-auto flex-1">
+                    <div className="relative w-full max-w-sm">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <Input
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Search item name or notes..."
+                        className="pl-9 h-10 border-slate-200 shadow-sm focus:ring-indigo-500"
+                      />
+                    </div>
+                    <Select value={sortBy} onValueChange={handleSort}>
+                      <SelectTrigger className="w-[160px] h-10 bg-white">
+                        <div className="flex items-center gap-2">
+                          <ArrowDownAz className="w-4 h-4 text-slate-400" />
+                          <SelectValue placeholder="Sort Items" />
                         </div>
-                      )}
+                      </SelectTrigger>
+                      <SelectContent className="z-[110]">
+                        <SelectItem value="none">Manual Order</SelectItem>
+                        <SelectItem value="name-asc">Item Sort (A-Z)</SelectItem>
+                        <SelectItem value="name-desc">Item Sort (Z-A)</SelectItem>
+                        <SelectItem value="category-asc">Category Sort (A-Z)</SelectItem>
+                        <SelectItem value="category-desc">Category Sort (Z-A)</SelectItem>
+                        <SelectItem value="notes-asc">Notes Sort (A-Z)</SelectItem>
+                        <SelectItem value="notes-desc">Notes Sort (Z-A)</SelectItem>
+                        <SelectItem value="qty-desc">Qty Sort (High to Low)</SelectItem>
+                        <SelectItem value="qty-asc">Qty Sort (Low to High)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-3 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                    <Label htmlFor="compact-mode" className="text-xs font-bold text-slate-600 cursor-pointer">Compact View</Label>
+                    <Checkbox
+                      id="compact-mode"
+                      checked={isCompact}
+                      onCheckedChange={(checked) => setIsCompact(!!checked)}
+                    />
+                  </div>
+                </div>
+
+                {/* Category Tabs - Horizontal Scrolling */}
+                <div className="border-t pt-3 relative bg-slate-50/30 px-4 -mx-4">
+                  <div className="overflow-x-auto pb-1 custom-scrollbar scroll-smooth">
+                    <Tabs value={categoryFilter} onValueChange={setCategoryFilter} className="w-full">
+                      <TabsList className="bg-transparent p-0 w-max flex justify-start h-10 flex-nowrap gap-1">
+                        <TabsTrigger value="all" className="text-[10px] font-black px-6 h-9 uppercase tracking-widest rounded-t-lg border-x border-t border-transparent data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-indigo-600 transition-all">
+                          All ({items.length})
+                        </TabsTrigger>
+                        {(() => {
+                          const categoriesWithCounts = items.reduce((acc: Record<string, number>, it) => {
+                            if (it.category) acc[it.category] = (acc[it.category] || 0) + 1;
+                            return acc;
+                          }, {});
+                          return Object.entries(categoriesWithCounts).sort(([a], [b]) => a.localeCompare(b)).map(([cat, count]) => (
+                            <TabsTrigger key={cat} value={cat} className="text-[10px] font-black px-6 h-9 uppercase tracking-widest rounded-t-lg border-x border-t border-transparent data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-indigo-600 transition-all">
+                              {cat} ({count})
+                            </TabsTrigger>
+                          ));
+                        })()}
+                      </TabsList>
+                    </Tabs>
+                  </div>
+                </div>
+              </div>
+
+              <Card className="border-slate-200 shadow-sm overflow-hidden">
+                <CardHeader className="bg-slate-50/50 py-3 border-b flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm font-bold flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-500" /> Project Itemized Requirements
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    {userRole === "supplier" && currentId && (
+                      <Button
+                        onClick={handleLoadToProposal}
+                        disabled={loadingToProposal}
+                        size="sm"
+                        className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        {loadingToProposal ? "Loading..." : "Load to Proposal"}
+                      </Button>
+                    )}
+                    {selectedItemIds.size > 0 && !isSupplier && (
+                      <>
+                        <Button
+                          onClick={() => { setShowAssignCategoryDialog(true); }}
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1 border-indigo-500 text-indigo-600 hover:bg-blue-50"
+                        >
+                          <Layers className="w-3.5 h-3.5" /> Assign Category ({selectedItemIds.size})
+                        </Button>
+                        <Button
+                          onClick={() => { loadUsers(); setShowAssignUserDialog(true); }}
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1 border-blue-500 text-blue-600 hover:bg-blue-50"
+                        >
+                          <Users className="w-3.5 h-3.5" /> Assign to User ({selectedItemIds.size})
+                        </Button>
+                        <Button
+                          onClick={() => { loadVendors(); setShowAssignDialog(true); }}
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1 border-amber-500 text-amber-600 hover:bg-amber-50"
+                        >
+                          Assign to Vendor ({selectedItemIds.size})
+                        </Button>
+                      </>
+                    )}
+                    {userRole !== "supplier" && (
+                      <Button onClick={addItem} size="sm" variant="outline" className="h-8 gap-1 border-indigo-200 text-indigo-600 hover:bg-indigo-50" disabled={isLocked}>
+                        <Plus className="w-3.5 h-3.5" /> Add New Row
+                      </Button>
+                    )}
+                    <Button onClick={() => setLocation("/sketch-plans")} size="sm" variant="ghost" className="h-8 text-slate-500">
+                      Cancel
+                    </Button>
+                  </div>
+                </CardHeader>
+
+                {/* Top Navigation Bar */}
+                <div className="py-2.5 px-4 border-b bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-3 gap-1.5 font-bold text-[10px] uppercase tracking-widest border-slate-200 text-slate-600 hover:bg-white shadow-sm"
+                      onClick={() => {
+                        if (currentPage > 1) {
+                          setCurrentPage(prev => prev - 1);
+                        } else {
+                          const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort()];
+                          const currentIdx = catList.indexOf(categoryFilter);
+                          if (currentIdx > 0) {
+                            setCategoryFilter(catList[currentIdx - 1]);
+                            setCurrentPage(1);
+                          }
+                        }
+                      }}
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                    </Button>
+
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        {totalPages > 1 && Array.from({ length: totalPages }).map((_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setCurrentPage(i + 1)}
+                            className={cn(
+                              "w-7 h-7 rounded-full text-[10px] font-bold transition-all",
+                              currentPage === i + 1 ? "bg-indigo-600 text-white shadow-md scale-105" : "bg-white text-slate-400 hover:text-indigo-600 border border-slate-100"
+                            )}
+                          >
+                            {i + 1}
+                          </button>
+                        ))}
+                        {totalPages <= 1 && (
+                          <Badge variant="outline" className="bg-white text-indigo-900 border-indigo-100 text-[9px] font-bold px-2 py-0.5 uppercase tracking-tighter">
+                            Single Page
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="h-4 w-px bg-slate-200 mx-1" />
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-indigo-900 uppercase tracking-widest leading-none">
+                          {categoryFilter === "all" ? "Master View" : categoryFilter}
+                        </span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                      </div>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-3 gap-1.5 font-bold text-[10px] uppercase tracking-widest border-slate-200 text-slate-600 hover:bg-white shadow-sm"
+                      onClick={() => {
+                        if (currentPage < totalPages) {
+                          setCurrentPage(prev => prev + 1);
+                        } else {
+                          const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort()];
+                          const currentIdx = catList.indexOf(categoryFilter);
+                          if (currentIdx < catList.length - 1) {
+                            setCategoryFilter(catList[currentIdx + 1]);
+                            setCurrentPage(1);
+                          }
+                        }
+                      }}
+                    >
+                      Next <ChevronRight className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+
+                  <div className="hidden lg:flex items-center gap-1.5">
+                    {["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort()].map((cat, idx) => (
+                      <TooltipProvider key={cat}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className={cn(
+                                "h-1.5 rounded-full transition-all cursor-pointer",
+                                categoryFilter === cat ? "w-8 bg-indigo-600" : "w-3 bg-slate-200 hover:bg-slate-300"
+                              )}
+                              onClick={() => setCategoryFilter(cat)}
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-[10px] font-bold">{cat === "all" ? "All Materials" : cat}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ))}
+                  </div>
+                </div>
+
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b">
+                          <th className={cn("w-12 px-2", isCompact ? "py-1" : "py-3")}>
+                            {!isSupplier && (
+                              <Checkbox
+                                checked={selectedItemIds.size === items.length && items.length > 0}
+                                onCheckedChange={toggleSelectAll}
+                              />
+                            )}
+                          </th>
+                          <th className={cn("w-10 px-2 text-left", isCompact ? "py-1" : "py-3")}>#</th>
+                          <th className={cn("w-[200px] min-w-[200px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Notes/Review</th>
+                          <th className={cn("w-[100px] min-w-[100px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Category</th>
+                          <th className={cn("w-[160px] min-w-[160px] max-w-[160px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Item/Product</th>
+                          <th className={cn("w-[60px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Unit</th>
+                          <th className={cn("w-[110px] min-w-[110px] max-w-[110px] px-2 text-center font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Dimensions</th>
+                          <th className={cn("w-[80px] min-w-[80px] max-w-[80px] px-2 text-center bg-indigo-50 font-bold text-indigo-700", isCompact ? "py-1" : "py-3")}>QTY</th>
+                          {!isSupplier && (
+                            <th className={cn("w-[100px] px-2 text-left font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Assignee</th>
+                          )}
+                          <th className={cn("w-[60px] px-2 text-center border-l bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Pre</th>
+                          <th className={cn("w-[60px] px-2 text-center bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Post</th>
+                          <th className={cn("w-10 px-2 text-center", isCompact ? "py-1" : "py-3")}>Del</th>
+                        </tr>
+                      </thead>
+                      <Reorder.Group as="tbody" axis="y" values={isFiltering ? items : items} onReorder={(newOrder) => {
+                        if (isFiltering) return;
+                        setItems(newOrder);
+                        if (sortBy !== "none") setSortBy("none");
+                      }} key={sortBy}>
+                        {paginatedItems.map((item, idx) => (
+                          <SketchPlanRow
+                            key={item.id}
+                            item={item}
+                            idx={items.indexOf(item)}
+                            itemsLength={items.length}
+                            isLocked={isLocked || userRole === "supplier"}
+                            isFiltering={isFiltering}
+                            isCompact={isCompact}
+                            updateItem={updateItem}
+                            removeItem={removeItem}
+                            moveItemToPosition={moveItemToPosition}
+                            selectMaterial={selectMaterial}
+                            searchResults={searchResults}
+                            searching={searching}
+                            loadMaterials={loadMaterials}
+                            materialSearch={materialSearch}
+                            setMaterialSearch={setMaterialSearch}
+                            openPopoverIdx={openPopoverIdx}
+                            setOpenPopoverIdx={setOpenPopoverIdx}
+                            renameRowImage={renameRowImage}
+                            removeRowImage={removeRowImage}
+                            handleRowImageUpload={handleRowImageUpload}
+                            setPreviewImage={setPreviewImage}
+                            lastSketchItemIdxRef={lastSketchItemIdxRef}
+                            setSketchTarget={setSketchTarget}
+                            setSketchInitialData={setSketchInitialData}
+                            toast={toast}
+                            setSketchDialogOpen={setSketchDialogOpen}
+                            isSelected={selectedItemIds.has(item.id)}
+                            toggleSelect={toggleSelectItem}
+                            userRole={userRole}
+                            onImageDragStart={handleImageDragStart}
+                            onImageDrop={handleImageDrop}
+                            addDimension={addDimension}
+                            removeDimension={removeDimension}
+                            updateDimension={updateDimension}
+                            cloneItem={cloneItem}
+                            categories={categories}
+                          />
+                        ))}
+                      </Reorder.Group>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Bottom Utils */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
+                {/* Plan-level Site Photos */}
+                <Card className="border-slate-200 shadow-sm col-span-1 md:col-span-2 lg:col-span-1 flex flex-col">
+                  <CardHeader className="bg-slate-50/50 py-2 border-b">
+                    <CardTitle className="text-xs font-bold flex items-center gap-2">
+                      <Camera className="w-3.5 h-3.5 text-indigo-500" /> Plan-Level Site Photos
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent
+                    className={cn(
+                      "p-3 flex-1 overflow-y-auto max-h-[220px] relative z-20 transition-colors",
+                      !(isLocked || userRole === "supplier") && "min-h-[100px]"
+                    )}
+                    onDragOver={(e) => {
+                      if (isLocked || userRole === "supplier") return;
+                      e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      if (isLocked || userRole === "supplier") return;
+                      handleImageDrop(e, { type: "main" });
+                    }}
+                  >
+                    <div className="grid grid-cols-4 gap-2">
+                      {planImages.map((img, idx) => (
+                        <div
+                          key={idx}
+                          className={cn(
+                            "relative group aspect-square rounded border overflow-hidden bg-slate-100 transition-all",
+                            (isLocked || userRole === "supplier") ? "pointer-events-auto" : "cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-indigo-300"
+                          )}
+                          draggable={!(isLocked || userRole === "supplier")}
+                          onDragStart={(e) => handleImageDragStart(e, { type: "main", imgIdx: idx })}
+                        >
+                          <img src={img.url} className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setPreviewImage(img)} title="Click to view full image" />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] p-1 truncate opacity-0 group-hover:opacity-100 transition-opacity pr-6 pointer-events-none">
+                            {img.name}
+                          </div>
+                          {!(isLocked || userRole === "supplier") && (
+                            <div className="absolute top-1 left-1 flex gap-1 z-10">
+                              <button onClick={() => {
+                                setSketchTarget("main");
+                                setSketchInitialData(img.url);
+                                lastSketchPlanImgIdxRef.current = idx;
+                                setSketchDialogOpen(true);
+                              }} className="bg-slate-800 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Edit in Sketch Editor">
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                          {!(isLocked || isSupplier) && (
+                            <>
+                              <button onClick={() => renamePlanImage(idx)} className="absolute bottom-1 right-1 bg-indigo-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Rename photo">
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              <button onClick={() => setPlanImages(planImages.filter((_, i) => i !== idx))} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Delete photo">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ))}
                       {!(isLocked || isSupplier) && (
                         <>
-                          <button onClick={() => renamePlanImage(idx)} className="absolute bottom-1 right-1 bg-indigo-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Rename photo">
-                            <Pencil className="w-3 h-3" />
-                          </button>
-                          <button onClick={() => setPlanImages(planImages.filter((_, i) => i !== idx))} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Delete photo">
-                            <X className="w-3 h-3" />
-                          </button>
+                          <input type="file" multiple accept="image/*" className="hidden" id="plan-photo-upload" onChange={handlePlanImageUpload} disabled={isLocked || isSupplier} />
+                          <Button variant="ghost" size="sm" className="col-span-4 border-2 border-dashed border-slate-200 h-10 hover:bg-slate-100 p-0" asChild disabled={isLocked || isSupplier}>
+                            <label htmlFor="plan-photo-upload" className="cursor-pointer flex flex-col items-center justify-center w-full h-full">
+                              <Plus className="w-5 h-5 text-slate-400" />
+                            </label>
+                          </Button>
                         </>
                       )}
                     </div>
-                  ))}
-                  {!(isLocked || isSupplier) && (
-                    <>
-                      <input type="file" multiple accept="image/*" className="hidden" id="plan-photo-upload" onChange={handlePlanImageUpload} disabled={isLocked || isSupplier} />
-                      <Button variant="ghost" size="sm" className="col-span-4 border-2 border-dashed border-slate-200 h-10 hover:bg-slate-100 p-0" asChild disabled={isLocked || isSupplier}>
-                        <label htmlFor="plan-photo-upload" className="cursor-pointer flex flex-col items-center justify-center w-full h-full">
-                          <Plus className="w-5 h-5 text-slate-400" />
+                  </CardContent>
+                </Card>
+
+                {/* Plan-level Attachments (PDF/Excel) */}
+                <Card className="border-slate-200 shadow-sm col-span-1 md:col-span-2 lg:col-span-1 flex flex-col">
+                  <CardHeader className="bg-slate-50/50 py-2 border-b flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold flex items-center gap-2">
+                      <Paperclip className="w-3.5 h-3.5 text-blue-500" /> Plan Attachments (PDF/Excel)
+                    </CardTitle>
+                    {userRole !== "supplier" && (
+                      <div className="flex gap-1">
+                        <input type="file" accept=".pdf" className="hidden" id="pdf-upload" onChange={(e) => handleAttachmentUpload(e, "pdf")} disabled={isLocked} />
+                        <label htmlFor="pdf-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", isLocked && "opacity-50 cursor-not-allowed")}>
+                          <FileUp className="w-3.5 h-3.5 text-red-500" />
                         </label>
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Plan-level Attachments (PDF/Excel) */}
-            <Card className="border-slate-200 shadow-sm col-span-1 md:col-span-2 lg:col-span-1 flex flex-col">
-              <CardHeader className="bg-slate-50/50 py-2 border-b flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold flex items-center gap-2">
-                  <Paperclip className="w-3.5 h-3.5 text-blue-500" /> Plan Attachments (PDF/Excel)
-                </CardTitle>
-                {userRole !== "supplier" && (
-                  <div className="flex gap-1">
-                    <input type="file" accept=".pdf" className="hidden" id="pdf-upload" onChange={(e) => handleAttachmentUpload(e, "pdf")} disabled={isLocked} />
-                    <label htmlFor="pdf-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", isLocked && "opacity-50 cursor-not-allowed")}>
-                      <FileUp className="w-3.5 h-3.5 text-red-500" />
-                    </label>
-                    <input type="file" accept=".xlsx,.xls" className="hidden" id="excel-upload" onChange={(e) => handleAttachmentUpload(e, "excel")} disabled={isLocked} />
-                    <label htmlFor="excel-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", isLocked && "opacity-50 cursor-not-allowed")}>
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" />
-                    </label>
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="p-3 flex-1 overflow-y-auto max-h-[220px]">
-                {attachments.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-20 text-slate-400 text-[10px] border-2 border-dashed rounded">
-                    <p>No attachments uploaded</p>
-                    <p>Click icons above to add PDF or Excel</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {attachments.map((att, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 rounded bg-slate-50 border border-slate-100 group">
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          {att.type === "pdf" ? <FileText className="w-4 h-4 text-red-500 shrink-0" /> : <FileSpreadsheet className="w-4 h-4 text-green-600 shrink-0" />}
-                          <span className="text-[10px] font-medium truncate">{att.name}</span>
-                        </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <a href={att.url} download={att.name} className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-white rounded transition-colors">
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
-                          {!(isLocked || userRole === "supplier") && (
-                            <button onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))} className="p-1 text-slate-500 hover:text-red-500 hover:bg-white rounded transition-colors">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                        <input type="file" accept=".xlsx,.xls" className="hidden" id="excel-upload" onChange={(e) => handleAttachmentUpload(e, "excel")} disabled={isLocked} />
+                        <label htmlFor="excel-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", isLocked && "opacity-50 cursor-not-allowed")}>
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" />
+                        </label>
                       </div>
-                    ))}
+                    )}
+                  </CardHeader>
+                  <CardContent className="p-3 flex-1 overflow-y-auto max-h-[220px]">
+                    {attachments.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-20 text-slate-400 text-[10px] border-2 border-dashed rounded">
+                        <p>No attachments uploaded</p>
+                        <p>Click icons above to add PDF or Excel</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {attachments.map((att, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2 rounded bg-slate-50 border border-slate-100 group">
+                            <div className="flex items-center gap-2 overflow-hidden">
+                              {att.type === "pdf" ? <FileText className="w-4 h-4 text-red-500 shrink-0" /> : <FileSpreadsheet className="w-4 h-4 text-green-600 shrink-0" />}
+                              <span className="text-[10px] font-medium truncate">{att.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <a href={att.url} download={att.name} className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-white rounded transition-colors">
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+                              {!(isLocked || userRole === "supplier") && (
+                                <button onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))} className="p-1 text-slate-500 hover:text-red-500 hover:bg-white rounded transition-colors">
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Sketch pad Section */}
+                <Card className="border-slate-200 shadow-sm flex flex-col">
+                  <CardHeader className="bg-slate-50/50 py-2 border-b">
+                    <CardTitle className="text-xs font-bold flex items-center gap-2">
+                      <Pencil className="w-3.5 h-3.5 text-indigo-500" /> Freehand Sketch pad
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 flex flex-col justify-between flex-1">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-amber-100 p-2 rounded-full text-amber-600 shrink-0">
+                        <Pencil className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-700">Need specific visual notes?</p>
+                        <p className="text-[9px] text-slate-500">Draw once and attach it to any row or main plan photos.</p>
+                      </div>
+                    </div>
+                    <Dialog open={sketchDialogOpen} onOpenChange={setSketchDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button onClick={() => {
+                          // Clear initial data if opening fresh
+                          if (!sketchInitialData) {
+                            setSketchInitialData(undefined);
+                            lastSketchItemIdxRef.current = null;
+                            lastSketchPlanImgIdxRef.current = null;
+                          }
+                        }} size="sm" className="bg-slate-800 hover:bg-black text-white text-[10px] h-8 px-4 w-full mt-3" disabled={isLocked || userRole === "supplier"}>Open Sketch Editor</Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-[850px] w-[95vw] max-h-[95vh] h-[90vh] overflow-y-auto flex flex-col p-1 sm:p-4">
+                        <DialogHeader className="px-2 sm:px-4">
+                          <DialogTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pr-8">
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm sm:text-base">Site Sketch Editor</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] sm:text-xs font-normal">
+                              <span className="text-slate-500">Save to:</span>
+                              <Select value={sketchTarget} onValueChange={setSketchTarget}>
+                                <SelectTrigger className="w-[140px] h-7 text-[10px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="main">Main (Plan Photos)</SelectItem>
+                                  {items.map((item, i) => (
+                                    <React.Fragment key={item.id}>
+                                      <SelectItem value={`pre-${i}`}>Row {i + 1} (Pre): {item.item_name || "Untitled"}</SelectItem>
+                                      <SelectItem value={`post-${i}`}>Row {i + 1} (Post): {item.item_name || "Untitled"}</SelectItem>
+                                    </React.Fragment>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </DialogTitle>
+                        </DialogHeader>
+                        <div className="py-2">
+                          <SketchPad
+                            readOnly={isLocked || userRole === "supplier"}
+                            initialData={sketchInitialData}
+                            unitPrefix={sketchTarget === "main" ? (items[0]?.dimension_unit || "ft") as string : (items[parseInt(sketchTarget.replace(/^(pre-|post-)/, ""))]?.dimension_unit || "ft") as string}
+                            onAutoSave={handleSketchAutoSave}
+                            onSave={handleSketchSave}
+                          />
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </CardContent>
+                </Card>
+
+                {/* Quick Tips */}
+                <Card className="border-slate-200 shadow-sm bg-slate-50/30 flex flex-col">
+                  <CardContent className="p-4 flex flex-col justify-center h-full text-[10px] text-slate-500">
+                    <p className="font-bold text-slate-700 mb-2 flex items-center gap-1.5 underline decoration-indigo-300 underline-offset-4"><FileText className="w-3.5 h-3.5" /> Site Visit Tips:</p>
+                    <ul className="list-disc list-inside space-y-1 ml-1 leading-relaxed">
+                      <li>Use the <span className="text-indigo-600 font-bold">Unit Toggle</span> for each row (ft/mm).</li>
+                      <li>Dimensions <span className="text-indigo-600 font-bold">auto-calculate</span> Qty (override if needed).</li>
+                      <li>Search <span className="text-indigo-600 font-bold">Materials/Products</span> from multiple DB sources.</li>
+                      <li>Snap photos per item for accurate documentation.</li>
+                      <li>Save as <span className="text-indigo-600 font-bold">Template</span> for repeated site structures.</li>
+                    </ul>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            {/* PDF Export Dialog */}
+            <Dialog open={isPdfDialogOpen} onOpenChange={setIsPdfDialogOpen}>
+              <DialogContent className="sm:max-w-[450px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-600" />
+                    Export Report Options
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                  <div>
+                    <Label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Column Selection</Label>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {["#", "Item", "Notes", "L", "W", "H", "Qty", "Unit", "Pre Photos", "Post Photos"].map((col) => (
+                        <div key={col} className="flex items-center space-x-2 bg-slate-50 p-2 rounded border border-slate-100">
+                          <Checkbox
+                            id={`col-${col}`}
+                            checked={selectedPdfCols.includes(col)}
+                            onCheckedChange={(checked) => {
+                              if (checked) setSelectedPdfCols([...selectedPdfCols, col]);
+                              else setSelectedPdfCols(selectedPdfCols.filter(c => c !== col));
+                            }}
+                          />
+                          <label htmlFor={`col-${col}`} className="text-xs font-semibold leading-none cursor-pointer text-slate-700">
+                            {col}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100">
+                    <Label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Additional Content</Label>
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-2 bg-amber-50 p-3 rounded border border-amber-100">
+                        <Checkbox
+                          id="include-plan-photos"
+                          checked={includePlanPhotosInExport}
+                          onCheckedChange={(checked) => setIncludePlanPhotosInExport(!!checked)}
+                        />
+                        <label htmlFor="include-plan-photos" className="text-xs font-bold leading-none cursor-pointer text-amber-900 flex items-center gap-2">
+                          <ImageIcon className="w-3.5 h-3.5" /> Include Plan-Level Site Photos
+                        </label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-indigo-50 p-3 rounded border border-indigo-100">
+                        <Checkbox
+                          id="include-sub-notes"
+                          checked={includeSubNotesInExport}
+                          onCheckedChange={(checked) => setIncludeSubNotesInExport(!!checked)}
+                        />
+                        <label htmlFor="include-sub-notes" className="text-xs font-bold leading-none cursor-pointer text-indigo-900 flex items-center gap-2">
+                          <GitBranch className="w-3.5 h-3.5" /> Include Sub-Notes & Detailed Dimensions
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+                  <Button variant="outline" onClick={() => setIsPdfDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    <Button variant="outline" className="flex-1 sm:flex-initial gap-1 border-green-600 text-green-700 hover:bg-green-50" onClick={() => { setIsPdfDialogOpen(false); handleDownloadExcel(); }}>
+                      <FileSpreadsheet className="w-4 h-4" /> Excel
+                    </Button>
+                    <Button className="flex-1 sm:flex-initial bg-indigo-600 hover:bg-indigo-700 gap-1" onClick={() => { setIsPdfDialogOpen(false); handleDownloadPdf(); }}>
+                      <Download className="w-4 h-4" /> PDF
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Email Dialog */}
+            <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Send Plan as Email Report</DialogTitle>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Recipient Email Address</Label>
+                    <Input id="email" type="email" placeholder="client@example.com" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} />
+                  </div>
+                  <p className="text-[10px] text-slate-500 italic">The plan will be sent as a PDF attachment with the columns currently selected in the "Export PDF" settings.</p>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)}>Cancel</Button>
+                  <Button className="bg-indigo-600 hover:bg-indigo-700 font-bold" disabled={sendingEmail} onClick={handleSendEmail}>
+                    {sendingEmail ? "Sending..." : "Send Email"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Image Preview Dialog */}
+            <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
+              <DialogContent className="max-w-4xl p-1 bg-transparent border-none shadow-none [&>button]:text-white [&>button]:bg-black/50 [&>button]:hover:bg-black/80 [&>button]:rounded-full [&>button]:p-2 [&>button]:z-[210] [&>button]:top-4 [&>button]:right-4 z-[200]">
+                <DialogHeader className="sr-only">
+                  <DialogTitle>Image Preview</DialogTitle>
+                </DialogHeader>
+                {previewImage && (
+                  <div className="relative flex flex-col items-center justify-center w-full h-full min-h-[50vh]">
+                    <img src={previewImage.url} alt={previewImage.name} className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl bg-white/5" />
+                    <div className="absolute bottom-4 bg-black/70 text-white px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm border border-white/10 shadow-lg">
+                      {previewImage.name}
+                    </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </DialogContent>
+            </Dialog>
 
-            {/* Sketch pad Section */}
-            <Card className="border-slate-200 shadow-sm flex flex-col">
-              <CardHeader className="bg-slate-50/50 py-2 border-b">
-                <CardTitle className="text-xs font-bold flex items-center gap-2">
-                  <Pencil className="w-3.5 h-3.5 text-indigo-500" /> Freehand Sketch pad
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-3 flex flex-col justify-between flex-1">
-                <div className="flex items-center gap-3">
-                  <div className="bg-amber-100 p-2 rounded-full text-amber-600 shrink-0">
-                    <Pencil className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-700">Need specific visual notes?</p>
-                    <p className="text-[9px] text-slate-500">Draw once and attach it to any row or main plan photos.</p>
-                  </div>
-                </div>
-                <Dialog open={sketchDialogOpen} onOpenChange={setSketchDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button onClick={() => {
-                      // Clear initial data if opening fresh
-                      if (!sketchInitialData) {
-                        setSketchInitialData(undefined);
-                        lastSketchItemIdxRef.current = null;
-                        lastSketchPlanImgIdxRef.current = null;
-                      }
-                    }} size="sm" className="bg-slate-800 hover:bg-black text-white text-[10px] h-8 px-4 w-full mt-3" disabled={isLocked || userRole === "supplier"}>Open Sketch Editor</Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-[850px] w-[95vw] max-h-[95vh] h-[90vh] overflow-y-auto flex flex-col p-1 sm:p-4">
-                    <DialogHeader className="px-2 sm:px-4">
-                      <DialogTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pr-8">
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm sm:text-base">Site Sketch Editor</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] sm:text-xs font-normal">
-                          <span className="text-slate-500">Save to:</span>
-                          <Select value={sketchTarget} onValueChange={setSketchTarget}>
-                            <SelectTrigger className="w-[140px] h-7 text-[10px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="main">Main (Plan Photos)</SelectItem>
-                              {items.map((item, i) => (
-                                <React.Fragment key={item.id}>
-                                  <SelectItem value={`pre-${i}`}>Row {i + 1} (Pre): {item.item_name || "Untitled"}</SelectItem>
-                                  <SelectItem value={`post-${i}`}>Row {i + 1} (Post): {item.item_name || "Untitled"}</SelectItem>
-                                </React.Fragment>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+            {/* Assign Vendor Dialog */}
+            <Dialog open={showAssignDialog} onOpenChange={(open) => {
+              setShowAssignDialog(open);
+              if (!open) setVendorSearchTerm("");
+            }}>
+              <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
+                <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-6 text-white shrink-0">
+                  <DialogHeader>
+                    <div className="flex items-center justify-between">
+                      <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
+                        <Store className="w-6 h-6 border-2 border-violet-400 rounded-full p-0.5" />
+                        Assign Items to Vendor
                       </DialogTitle>
-                    </DialogHeader>
-                    <div className="py-2">
-                      <SketchPad
-                        readOnly={isLocked || userRole === "supplier"}
-                        initialData={sketchInitialData}
-                        unitPrefix={sketchTarget === "main" ? (items[0]?.dimension_unit || "ft") as string : (items[parseInt(sketchTarget.replace(/^(pre-|post-)/, ""))]?.dimension_unit || "ft") as string}
-                        onAutoSave={handleSketchAutoSave}
-                        onSave={handleSketchSave}
-                      />
                     </div>
-                  </DialogContent>
-                </Dialog>
-              </CardContent>
-            </Card>
-
-            {/* Quick Tips */}
-            <Card className="border-slate-200 shadow-sm bg-slate-50/30 flex flex-col">
-              <CardContent className="p-4 flex flex-col justify-center h-full text-[10px] text-slate-500">
-                <p className="font-bold text-slate-700 mb-2 flex items-center gap-1.5 underline decoration-indigo-300 underline-offset-4"><FileText className="w-3.5 h-3.5" /> Site Visit Tips:</p>
-                <ul className="list-disc list-inside space-y-1 ml-1 leading-relaxed">
-                  <li>Use the <span className="text-indigo-600 font-bold">Unit Toggle</span> for each row (ft/mm).</li>
-                  <li>Dimensions <span className="text-indigo-600 font-bold">auto-calculate</span> Qty (override if needed).</li>
-                  <li>Search <span className="text-indigo-600 font-bold">Materials/Products</span> from multiple DB sources.</li>
-                  <li>Snap photos per item for accurate documentation.</li>
-                  <li>Save as <span className="text-indigo-600 font-bold">Template</span> for repeated site structures.</li>
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        {/* PDF Export Dialog */}
-        <Dialog open={isPdfDialogOpen} onOpenChange={setIsPdfDialogOpen}>
-          <DialogContent className="sm:max-w-[450px]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-indigo-600" />
-                Export Report Options
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-6 py-4">
-              <div>
-                <Label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Column Selection</Label>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  {["#", "Item", "Notes", "L", "W", "H", "Qty", "Unit", "Pre Photos", "Post Photos"].map((col) => (
-                    <div key={col} className="flex items-center space-x-2 bg-slate-50 p-2 rounded border border-slate-100">
-                      <Checkbox
-                        id={`col-${col}`}
-                        checked={selectedPdfCols.includes(col)}
-                        onCheckedChange={(checked) => {
-                          if (checked) setSelectedPdfCols([...selectedPdfCols, col]);
-                          else setSelectedPdfCols(selectedPdfCols.filter(c => c !== col));
-                        }}
-                      />
-                      <label htmlFor={`col-${col}`} className="text-xs font-semibold leading-none cursor-pointer text-slate-700">
-                        {col}
-                      </label>
-                    </div>
-                  ))}
+                    <p className="text-violet-100 text-sm mt-1">
+                      You have selected <span className="font-bold underline decoration-amber-400 underline-offset-4">{selectedItemIds.size}</span> items to distribute.
+                    </p>
+                  </DialogHeader>
                 </div>
-              </div>
 
-              <div className="pt-4 border-t border-slate-100">
-                <Label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Additional Content</Label>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2 bg-amber-50 p-3 rounded border border-amber-100">
-                    <Checkbox
-                      id="include-plan-photos"
-                      checked={includePlanPhotosInExport}
-                      onCheckedChange={(checked) => setIncludePlanPhotosInExport(!!checked)}
+                <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
+                  <div className="relative group shrink-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-violet-500 transition-colors" />
+                    <Input
+                      placeholder="Search vendors by name or city..."
+                      className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-medium"
+                      value={vendorSearchTerm}
+                      onChange={(e) => setVendorSearchTerm(e.target.value)}
                     />
-                    <label htmlFor="include-plan-photos" className="text-xs font-bold leading-none cursor-pointer text-amber-900 flex items-center gap-2">
-                      <ImageIcon className="w-3.5 h-3.5" /> Include Plan-Level Site Photos
-                    </label>
                   </div>
-                  <div className="flex items-center space-x-2 bg-indigo-50 p-3 rounded border border-indigo-100">
-                    <Checkbox
-                      id="include-sub-notes"
-                      checked={includeSubNotesInExport}
-                      onCheckedChange={(checked) => setIncludeSubNotesInExport(!!checked)}
-                    />
-                    <label htmlFor="include-sub-notes" className="text-xs font-bold leading-none cursor-pointer text-indigo-900 flex items-center gap-2">
-                      <GitBranch className="w-3.5 h-3.5" /> Include Sub-Notes & Detailed Dimensions
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <DialogFooter className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
-              <Button variant="outline" onClick={() => setIsPdfDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <Button variant="outline" className="flex-1 sm:flex-initial gap-1 border-green-600 text-green-700 hover:bg-green-50" onClick={() => { setIsPdfDialogOpen(false); handleDownloadExcel(); }}>
-                  <FileSpreadsheet className="w-4 h-4" /> Excel
-                </Button>
-                <Button className="flex-1 sm:flex-initial bg-indigo-600 hover:bg-indigo-700 gap-1" onClick={() => { setIsPdfDialogOpen(false); handleDownloadPdf(); }}>
-                  <Download className="w-4 h-4" /> PDF
-                </Button>
-              </div>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
-        {/* Email Dialog */}
-        <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Send Plan as Email Report</DialogTitle>
-            </DialogHeader>
-            <div className="py-4 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Recipient Email Address</Label>
-                <Input id="email" type="email" placeholder="client@example.com" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} />
-              </div>
-              <p className="text-[10px] text-slate-500 italic">The plan will be sent as a PDF attachment with the columns currently selected in the "Export PDF" settings.</p>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)}>Cancel</Button>
-              <Button className="bg-indigo-600 hover:bg-indigo-700 font-bold" disabled={sendingEmail} onClick={handleSendEmail}>
-                {sendingEmail ? "Sending..." : "Send Email"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Image Preview Dialog */}
-        <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
-          <DialogContent className="max-w-4xl p-1 bg-transparent border-none shadow-none [&>button]:text-white [&>button]:bg-black/50 [&>button]:hover:bg-black/80 [&>button]:rounded-full [&>button]:p-2 [&>button]:z-[210] [&>button]:top-4 [&>button]:right-4 z-[200]">
-            <DialogHeader className="sr-only">
-              <DialogTitle>Image Preview</DialogTitle>
-            </DialogHeader>
-            {previewImage && (
-              <div className="relative flex flex-col items-center justify-center w-full h-full min-h-[50vh]">
-                <img src={previewImage.url} alt={previewImage.name} className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl bg-white/5" />
-                <div className="absolute bottom-4 bg-black/70 text-white px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm border border-white/10 shadow-lg">
-                  {previewImage.name}
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Assign Vendor Dialog */}
-        <Dialog open={showAssignDialog} onOpenChange={(open) => {
-          setShowAssignDialog(open);
-          if (!open) setVendorSearchTerm("");
-        }}>
-          <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
-            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-6 text-white shrink-0">
-              <DialogHeader>
-                <div className="flex items-center justify-between">
-                  <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
-                    <Store className="w-6 h-6 border-2 border-violet-400 rounded-full p-0.5" />
-                    Assign Items to Vendor
-                  </DialogTitle>
-                </div>
-                <p className="text-violet-100 text-sm mt-1">
-                  You have selected <span className="font-bold underline decoration-amber-400 underline-offset-4">{selectedItemIds.size}</span> items to distribute.
-                </p>
-              </DialogHeader>
-            </div>
-
-            <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
-              <div className="relative group shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-violet-500 transition-colors" />
-                <Input
-                  placeholder="Search vendors by name or city..."
-                  className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-medium"
-                  value={vendorSearchTerm}
-                  onChange={(e) => setVendorSearchTerm(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
-                {vendors.filter(v =>
-                  v.name?.toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
-                  v.city?.toLowerCase().includes(vendorSearchTerm.toLowerCase())
-                ).length === 0 ? (
-                  <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
-                      <Search className="w-6 h-6 text-slate-300" />
-                    </div>
-                    <p className="text-sm text-slate-500 font-medium">No matching vendors found.</p>
-                    <Button variant="link" size="sm" onClick={() => setVendorSearchTerm("")} className="text-violet-600 p-0 h-auto">Clear Search</Button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-2 p-1">
+                  <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
                     {vendors.filter(v =>
                       v.name?.toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
                       v.city?.toLowerCase().includes(vendorSearchTerm.toLowerCase())
-                    ).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(v => (
-                      <Button
-                        key={v.id}
-                        variant="outline"
-                        className="w-full justify-start h-auto py-3 px-4 hover:border-violet-400 hover:bg-violet-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
-                        onClick={() => handleAssignToVendor(v.id)}
-                        disabled={assigningLoading}
-                      >
-                        <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-violet-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
-                          <Store className="w-5 h-5 text-slate-500 group-hover:text-violet-600" />
+                    ).length === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
+                        <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
+                          <Search className="w-6 h-6 text-slate-300" />
                         </div>
-                        <div className="flex flex-col items-start min-w-0 flex-1 text-left">
-                          <span className="font-bold text-slate-700 group-hover:text-violet-900 truncate w-full text-sm">{v.name}</span>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {v.city && (
-                              <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-violet-400"></span> {v.city}
-                              </span>
-                            )}
-                            {v.gstno && (
-                              <span className="text-[10px] text-slate-400 font-mono tracking-tighter">
-                                {v.gstno}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
-                          <Check className="w-5 h-5 text-violet-600" />
-                        </div>
-                      </Button>
-                    ))}
+                        <p className="text-sm text-slate-500 font-medium">No matching vendors found.</p>
+                        <Button variant="link" size="sm" onClick={() => setVendorSearchTerm("")} className="text-violet-600 p-0 h-auto">Clear Search</Button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 p-1">
+                        {vendors.filter(v =>
+                          v.name?.toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
+                          v.city?.toLowerCase().includes(vendorSearchTerm.toLowerCase())
+                        ).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(v => (
+                          <Button
+                            key={v.id}
+                            variant="outline"
+                            className="w-full justify-start h-auto py-3 px-4 hover:border-violet-400 hover:bg-violet-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                            onClick={() => handleAssignToVendor(v.id)}
+                            disabled={assigningLoading}
+                          >
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-violet-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
+                              <Store className="w-5 h-5 text-slate-500 group-hover:text-violet-600" />
+                            </div>
+                            <div className="flex flex-col items-start min-w-0 flex-1 text-left">
+                              <span className="font-bold text-slate-700 group-hover:text-violet-900 truncate w-full text-sm">{v.name}</span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {v.city && (
+                                  <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400"></span> {v.city}
+                                  </span>
+                                )}
+                                {v.gstno && (
+                                  <span className="text-[10px] text-slate-400 font-mono tracking-tighter">
+                                    {v.gstno}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
+                              <Check className="w-5 h-5 text-violet-600" />
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border-t flex justify-end shrink-0">
-              <Button variant="ghost" onClick={() => setShowAssignDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-9">
-                Close
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Assign User Dialog */}
-        <Dialog open={showAssignUserDialog} onOpenChange={(open) => {
-          setShowAssignUserDialog(open);
-          if (!open) setUserSearchTerm("");
-        }}>
-          <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white shrink-0">
-              <DialogHeader>
-                <div className="flex items-center justify-between">
-                  <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
-                    <Users className="w-6 h-6 border-2 border-blue-400 rounded-full p-0.5" />
-                    Assign Items to User
-                  </DialogTitle>
                 </div>
-                <p className="text-blue-100 text-sm mt-1">
-                  You have selected <span className="font-bold underline decoration-blue-400 underline-offset-4">{selectedItemIds.size}</span> items to assigned directly to a team member.
-                </p>
-              </DialogHeader>
-            </div>
 
-            <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
-              <div className="relative group shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                <Input
-                  placeholder="Search users by name..."
-                  className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-                  value={userSearchTerm}
-                  onChange={(e) => setUserSearchTerm(e.target.value)}
-                />
-              </div>
+                <div className="p-4 bg-slate-50 border-t flex justify-end shrink-0">
+                  <Button variant="ghost" onClick={() => setShowAssignDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-9">
+                    Close
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
 
-              <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
-                {usersList.filter(u =>
-                  u.username?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                  u.fullName?.toLowerCase().includes(userSearchTerm.toLowerCase())
-                ).length === 0 ? (
-                  <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
-                      <Search className="w-6 h-6 text-slate-300" />
+            {/* Assign User Dialog */}
+            <Dialog open={showAssignUserDialog} onOpenChange={(open) => {
+              setShowAssignUserDialog(open);
+              if (!open) setUserSearchTerm("");
+            }}>
+              <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white shrink-0">
+                  <DialogHeader>
+                    <div className="flex items-center justify-between">
+                      <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
+                        <Users className="w-6 h-6 border-2 border-blue-400 rounded-full p-0.5" />
+                        Assign Items to User
+                      </DialogTitle>
                     </div>
-                    <p className="text-sm text-slate-500 font-medium">No matching users found.</p>
-                    <Button variant="link" size="sm" onClick={() => setUserSearchTerm("")} className="text-blue-600 p-0 h-auto">Clear Search</Button>
+                    <p className="text-blue-100 text-sm mt-1">
+                      You have selected <span className="font-bold underline decoration-blue-400 underline-offset-4">{selectedItemIds.size}</span> items to assigned directly to a team member.
+                    </p>
+                  </DialogHeader>
+                </div>
+
+                <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
+                  <div className="relative group shrink-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                    <Input
+                      placeholder="Search users by name..."
+                      className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                    />
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-2 p-1">
+
+                  <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
                     {usersList.filter(u =>
                       u.username?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
                       u.fullName?.toLowerCase().includes(userSearchTerm.toLowerCase())
-                    ).sort((a, b) => ((a.fullName || a.username) || "").localeCompare((b.fullName || b.username) || "")).map(u => (
-                      <Button
-                        key={u.id}
-                        variant="outline"
-                        className="w-full justify-start h-auto py-3 px-4 hover:border-blue-400 hover:bg-blue-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
-                        onClick={() => handleAssignToUser(u.id)}
-                        disabled={assigningLoading}
-                      >
-                        <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
-                          <Users className="w-5 h-5 text-slate-500 group-hover:text-blue-600" />
+                    ).length === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
+                        <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
+                          <Search className="w-6 h-6 text-slate-300" />
                         </div>
-                        <div className="flex flex-col items-start min-w-0 flex-1 text-left">
-                          <span className="font-bold text-slate-700 group-hover:text-blue-900 truncate w-full text-sm">{u.fullName || u.username}</span>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-slate-400 font-mono tracking-tighter">
-                              Role: {u.role}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
-                          <Check className="w-5 h-5 text-blue-600" />
-                        </div>
-                      </Button>
-                    ))}
+                        <p className="text-sm text-slate-500 font-medium">No matching users found.</p>
+                        <Button variant="link" size="sm" onClick={() => setUserSearchTerm("")} className="text-blue-600 p-0 h-auto">Clear Search</Button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 p-1">
+                        {usersList.filter(u =>
+                          u.username?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                          u.fullName?.toLowerCase().includes(userSearchTerm.toLowerCase())
+                        ).sort((a, b) => ((a.fullName || a.username) || "").localeCompare((b.fullName || b.username) || "")).map(u => (
+                          <Button
+                            key={u.id}
+                            variant="outline"
+                            className="w-full justify-start h-auto py-3 px-4 hover:border-blue-400 hover:bg-blue-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                            onClick={() => handleAssignToUser(u.id)}
+                            disabled={assigningLoading}
+                          >
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
+                              <Users className="w-5 h-5 text-slate-500 group-hover:text-blue-600" />
+                            </div>
+                            <div className="flex flex-col items-start min-w-0 flex-1 text-left">
+                              <span className="font-bold text-slate-700 group-hover:text-blue-900 truncate w-full text-sm">{u.fullName || u.username}</span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-slate-400 font-mono tracking-tighter">
+                                  Role: {u.role}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
+                              <Check className="w-5 h-5 text-blue-600" />
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border-t flex justify-end shrink-0">
-              <Button variant="ghost" onClick={() => setShowAssignUserDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-9">
-                Close
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Assign Category Dialog */}
-        <Dialog open={showAssignCategoryDialog} onOpenChange={(open) => {
-          setShowAssignCategoryDialog(open);
-          if (!open) setCategorySearchTerm("");
-        }}>
-          <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white shrink-0">
-              <DialogHeader>
-                <div className="flex items-center justify-between">
-                  <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
-                    <Layers className="w-6 h-6 border-2 border-indigo-400 rounded-full p-0.5" />
-                    Assign Category to Items
-                  </DialogTitle>
                 </div>
-                <p className="text-indigo-100 text-sm mt-1">
-                  Assign a category to <span className="font-bold underline decoration-amber-400 underline-offset-4">{selectedItemIds.size}</span> selected items.
-                </p>
-              </DialogHeader>
-            </div>
 
-            <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
-              <div className="relative group shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-                <Input
-                  placeholder="Search categories..."
-                  className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
-                  value={categorySearchTerm}
-                  onChange={(e) => setCategorySearchTerm(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
-                {categories.filter(cat =>
-                  cat.toLowerCase().includes(categorySearchTerm.toLowerCase())
-                ).length === 0 ? (
-                  <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
-                      <Search className="w-6 h-6 text-slate-300" />
-                    </div>
-                    <p className="text-sm text-slate-500 font-medium">No matching categories found.</p>
-                    <Button variant="link" size="sm" onClick={() => setCategorySearchTerm("")} className="text-indigo-600 p-0 h-auto">Clear Search</Button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-2 p-1">
-                    {categories.filter(cat =>
-                      cat.toLowerCase().includes(categorySearchTerm.toLowerCase())
-                    ).sort((a, b) => a.localeCompare(b)).map((cat, idx) => (
-                      <Button
-                        key={idx}
-                        variant="outline"
-                        className="w-full justify-start h-auto py-3 px-4 hover:border-indigo-400 hover:bg-indigo-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
-                        onClick={() => handleAssignToCategory(cat)}
-                        disabled={assigningLoading}
-                      >
-                        <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
-                          <Layers className="w-5 h-5 text-slate-500 group-hover:text-indigo-600" />
-                        </div>
-                        <div className="flex flex-col items-start min-w-0 flex-1 text-left">
-                          <span className="font-bold text-slate-700 group-hover:text-indigo-900 truncate w-full text-sm">{cat}</span>
-                        </div>
-                        <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
-                          <Check className="w-5 h-5 text-indigo-600" />
-                        </div>
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border-t flex flex-col gap-3 shrink-0">
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[10px] uppercase font-bold text-slate-400">Manual Entry</Label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Type custom category..."
-                    className="h-9 text-xs bg-white"
-                    value={categorySearchTerm}
-                    onChange={(e) => setCategorySearchTerm(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && categorySearchTerm.trim()) {
-                        handleAssignToCategory(categorySearchTerm.trim());
-                      }
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    className="bg-indigo-600 hover:bg-indigo-700 h-9"
-                    onClick={() => {
-                      if (categorySearchTerm.trim()) {
-                        handleAssignToCategory(categorySearchTerm.trim());
-                      }
-                    }}
-                  >
-                    Assign
+                <div className="p-4 bg-slate-50 border-t flex justify-end shrink-0">
+                  <Button variant="ghost" onClick={() => setShowAssignUserDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-9">
+                    Close
                   </Button>
                 </div>
-              </div>
-              <div className="flex justify-end pt-1 border-t border-slate-200">
-                <Button variant="ghost" onClick={() => setShowAssignCategoryDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-8 text-xs">
-                  Close
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+              </DialogContent>
+            </Dialog>
 
-        {/* New Version Dialog */}
-        <Dialog open={showNewVersionDialog} onOpenChange={setShowNewVersionDialog}>
-          <DialogContent className="sm:max-w-[420px]">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-violet-600" />Create New Version</DialogTitle></DialogHeader>
-            <div className="py-4 space-y-3"><p className="text-sm text-slate-600">Do you want to copy all items from <strong>V{currentVersionNumber}</strong> into the new version?</p><div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 border space-y-1"><p><strong>Copy Items</strong> — Start from the same item list</p><p><strong>Start Fresh</strong> — Begin with an empty list</p></div></div>
-            <DialogFooter className="flex gap-2"><Button variant="outline" onClick={() => setShowNewVersionDialog(false)} className="flex-1">Cancel</Button><Button variant="outline" className="flex-1" onClick={() => handleCreateNewVersion(false)} disabled={creatingVersion}>{creatingVersion ? "Creating..." : "Start Fresh"}</Button><Button className="flex-1 bg-violet-600 hover:bg-violet-700 text-white" onClick={() => handleCreateNewVersion(true)} disabled={creatingVersion}>{creatingVersion ? "Creating..." : "Copy Items"}</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
+            {/* Assign Category Dialog */}
+            <Dialog open={showAssignCategoryDialog} onOpenChange={(open) => {
+              setShowAssignCategoryDialog(open);
+              if (!open) setCategorySearchTerm("");
+            }}>
+              <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white shrink-0">
+                  <DialogHeader>
+                    <div className="flex items-center justify-between">
+                      <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
+                        <Layers className="w-6 h-6 border-2 border-indigo-400 rounded-full p-0.5" />
+                        Assign Category to Items
+                      </DialogTitle>
+                    </div>
+                    <p className="text-indigo-100 text-sm mt-1">
+                      Assign a category to <span className="font-bold underline decoration-amber-400 underline-offset-4">{selectedItemIds.size}</span> selected items.
+                    </p>
+                  </DialogHeader>
+                </div>
+
+                <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
+                  <div className="relative group shrink-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                    <Input
+                      placeholder="Search categories..."
+                      className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
+                      value={categorySearchTerm}
+                      onChange={(e) => setCategorySearchTerm(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
+                    {categories.filter(cat =>
+                      cat.toLowerCase().includes(categorySearchTerm.toLowerCase())
+                    ).length === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
+                        <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
+                          <Search className="w-6 h-6 text-slate-300" />
+                        </div>
+                        <p className="text-sm text-slate-500 font-medium">No matching categories found.</p>
+                        <Button variant="link" size="sm" onClick={() => setCategorySearchTerm("")} className="text-indigo-600 p-0 h-auto">Clear Search</Button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 p-1">
+                        {categories.filter(cat =>
+                          cat.toLowerCase().includes(categorySearchTerm.toLowerCase())
+                        ).sort((a, b) => a.localeCompare(b)).map((cat, idx) => (
+                          <Button
+                            key={idx}
+                            variant="outline"
+                            className="w-full justify-start h-auto py-3 px-4 hover:border-indigo-400 hover:bg-indigo-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                            onClick={() => handleAssignToCategory(cat)}
+                            disabled={assigningLoading}
+                          >
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
+                              <Layers className="w-5 h-5 text-slate-500 group-hover:text-indigo-600" />
+                            </div>
+                            <div className="flex flex-col items-start min-w-0 flex-1 text-left">
+                              <span className="font-bold text-slate-700 group-hover:text-indigo-900 truncate w-full text-sm">{cat}</span>
+                            </div>
+                            <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
+                              <Check className="w-5 h-5 text-indigo-600" />
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 border-t flex flex-col gap-3 shrink-0">
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[10px] uppercase font-bold text-slate-400">Manual Entry</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Type custom category..."
+                        className="h-9 text-xs bg-white"
+                        value={categorySearchTerm}
+                        onChange={(e) => setCategorySearchTerm(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && categorySearchTerm.trim()) {
+                            handleAssignToCategory(categorySearchTerm.trim());
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        className="bg-indigo-600 hover:bg-indigo-700 h-9"
+                        onClick={() => {
+                          if (categorySearchTerm.trim()) {
+                            handleAssignToCategory(categorySearchTerm.trim());
+                          }
+                        }}
+                      >
+                        Assign
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex justify-end pt-1 border-t border-slate-200">
+                    <Button variant="ghost" onClick={() => setShowAssignCategoryDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-8 text-xs">
+                      Close
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* New Version Dialog */}
+            <Dialog open={showNewVersionDialog} onOpenChange={setShowNewVersionDialog}>
+              <DialogContent className="sm:max-w-[420px]">
+                <DialogHeader><DialogTitle className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-violet-600" />Create New Version</DialogTitle></DialogHeader>
+                <div className="py-4 space-y-3"><p className="text-sm text-slate-600">Do you want to copy all items from <strong>V{currentVersionNumber}</strong> into the new version?</p><div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 border space-y-1"><p><strong>Copy Items</strong> — Start from the same item list</p><p><strong>Start Fresh</strong> — Begin with an empty list</p></div></div>
+                <DialogFooter className="flex gap-2"><Button variant="outline" onClick={() => setShowNewVersionDialog(false)} className="flex-1">Cancel</Button><Button variant="outline" className="flex-1" onClick={() => handleCreateNewVersion(false)} disabled={creatingVersion}>{creatingVersion ? "Creating..." : "Start Fresh"}</Button><Button className="flex-1 bg-violet-600 hover:bg-violet-700 text-white" onClick={() => handleCreateNewVersion(true)} disabled={creatingVersion}>{creatingVersion ? "Creating..." : "Copy Items"}</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
       </div>
 
       {/* Floating Action Button */}

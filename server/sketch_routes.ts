@@ -29,7 +29,13 @@ export async function registerSketchRoutes(app: Express) {
     await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS version_number INTEGER DEFAULT 1`);
     await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS parent_plan_id VARCHAR(100)`);
     await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS version_status VARCHAR(50) DEFAULT 'draft'`);
-    console.log("[db] sketch_plans version columns verified");
+
+    // Performance indexes
+    await query(`CREATE INDEX IF NOT EXISTS idx_sketch_templates_created_at ON sketch_templates (created_at DESC)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_sketch_plans_project_id ON sketch_plans (project_id)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_sketch_plan_items_plan_id ON sketch_plan_items (plan_id)`);
+
+    console.log("[db] sketch_plans version columns and indexes verified");
   } catch (e) { console.warn("[db] sketch_plans version columns warning:", (e as any)?.message); }
 
   // GET /api/sketch-plans - List all sketch plans
@@ -292,13 +298,8 @@ export async function registerSketchRoutes(app: Express) {
       }
 
       const itemsRes = await query(`
-        SELECT spi.*, 
-               COALESCE(spi.category, m.category, mc.name, ms.category, p.subcategory) AS category
+        SELECT spi.*
         FROM sketch_plan_items spi
-        LEFT JOIN materials m ON spi.material_id::text = m.id::text
-        LEFT JOIN products p ON spi.material_id::text = p.id::text
-        LEFT JOIN material_subcategories ms ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(ms.name))
-        LEFT JOIN material_categories mc ON LOWER(TRIM(ms.category)) = LOWER(TRIM(mc.name))
         WHERE spi.plan_id = $1 
         ORDER BY spi.created_at ASC, spi.id ASC`,
         [id]
@@ -411,13 +412,28 @@ export async function registerSketchRoutes(app: Express) {
       }
 
       await client.query("COMMIT");
-      res.status(201).json({ id, message: "Sketch plan created successfully" });
+
+      // Refetch full plan to return to client (sync IDs)
+      const itemsRes = await client.query(`
+        SELECT spi.*
+        FROM sketch_plan_items spi
+        WHERE spi.plan_id = $1 ORDER BY spi.created_at ASC, spi.id ASC`, [id]);
+      const imagesRes = await client.query("SELECT id, item_id, image_url, image_name FROM sketch_plan_images WHERE plan_id = $1", [id]);
+      const attachmentsRes = await client.query("SELECT id, file_url, file_name, file_type FROM sketch_plan_attachments WHERE plan_id = $1", [id]);
+
+      res.status(201).json({
+        id,
+        message: "Sketch plan created successfully",
+        items: itemsRes.rows || [],
+        images: imagesRes.rows || [],
+        attachments: attachmentsRes.rows || []
+      });
     } catch (err) {
-      await client.query("ROLLBACK");
+      if (client) await client.query("ROLLBACK");
       console.error("POST /api/sketch-plans error:", err);
       res.status(500).json({ message: "Failed to create sketch plan" });
     } finally {
-      client.release();
+      if (client) client.release();
     }
   });
 
@@ -546,12 +562,26 @@ export async function registerSketchRoutes(app: Express) {
         }
 
         await client.query("COMMIT");
-        res.json({ message: "Sketch plan updated successfully" });
+
+        // Refetch full plan to return to client (sync IDs)
+        const itemsRes = await client.query(`
+          SELECT spi.*
+          FROM sketch_plan_items spi
+          WHERE spi.plan_id = $1 ORDER BY spi.created_at ASC, spi.id ASC`, [id]);
+        const imagesRes = await client.query("SELECT id, item_id, image_url, image_name FROM sketch_plan_images WHERE plan_id = $1", [id]);
+        const attachmentsRes = await client.query("SELECT id, file_url, file_name, file_type FROM sketch_plan_attachments WHERE plan_id = $1", [id]);
+
+        res.json({
+          message: "Sketch plan updated successfully",
+          items: itemsRes.rows || [],
+          images: imagesRes.rows || [],
+          attachments: attachmentsRes.rows || []
+        });
       } catch (err) {
-        await client.query("ROLLBACK");
+        if (client) await client.query("ROLLBACK");
         throw err;
       } finally {
-        client.release();
+        if (client) client.release();
       }
     } catch (err) {
       console.error("PUT /api/sketch-plans/:id error", err);
@@ -645,14 +675,38 @@ export async function registerSketchRoutes(app: Express) {
     }
   });
 
-  // GET /api/sketch-templates - List templates
+  // GET /api/sketch-templates - List template metadata (Fast)
   app.get("/api/sketch-templates", authMiddleware, async (req: Request, res: Response) => {
     try {
-      const result = await query("SELECT * FROM sketch_templates ORDER BY created_at DESC");
+      // Return only metadata to keep payload small
+      const result = await query(`
+        SELECT 
+          id, 
+          name, 
+          created_at as last_updated,
+          COALESCE(jsonb_array_length(template_data::jsonb), 0) as item_count
+        FROM sketch_templates 
+        ORDER BY created_at DESC
+      `);
       res.json({ templates: result.rows || [] });
     } catch (err) {
       console.error("GET /api/sketch-templates error", err);
       res.status(500).json({ message: "Failed to fetch templates" });
+    }
+  });
+
+  // GET /api/sketch-templates/:id - Fetch full template data (Lazy Load)
+  app.get("/api/sketch-templates/:id", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await query("SELECT * FROM sketch_templates WHERE id = $1", [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      res.json({ template: result.rows[0] });
+    } catch (err) {
+      console.error("GET /api/sketch-templates/:id error", err);
+      res.status(500).json({ message: "Failed to fetch template details" });
     }
   });
 
