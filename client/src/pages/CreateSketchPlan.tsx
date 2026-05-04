@@ -71,6 +71,7 @@ interface PlanItem {
   assigned_user_id?: string;
   assigned_user_name?: string;
   user_task_status?: string;
+  sort_order?: number;
 }
 
 const parseImages = (imageField: any): string[] => {
@@ -98,7 +99,7 @@ const appendAuthToken = (url: string) => {
 
 // Helper Component for Image Columns (Pre/Post)
 const PhotoColumn = ({
-  item, idx, category, images, isLocked, isCompact,
+  item, idx, displayIdx, category, images, isLocked, isCompact,
   handleRowImageUpload, removeRowImage, renameRowImage,
   setPreviewImage, setSketchTarget, setSketchInitialData,
   lastSketchItemIdxRef, setSketchDialogOpen,
@@ -709,6 +710,7 @@ const SketchPlanRow = React.memo(({
         <PhotoColumn
           item={item}
           idx={idx}
+          displayIdx={displayIdx}
           category="pre"
           images={item.preImages || []}
           isLocked={isLocked}
@@ -730,6 +732,7 @@ const SketchPlanRow = React.memo(({
         <PhotoColumn
           item={item}
           idx={idx}
+          displayIdx={displayIdx}
           category="post"
           images={item.postImages || []}
           isLocked={isLocked}
@@ -1965,7 +1968,7 @@ export default function CreateSketchPlan() {
           const row: any[] = [];
           headers.forEach(h => {
             if (h === "#") {
-              row.push(dIdx === 0 ? sortedAllItems.indexOf(item) + 1 : "");
+              row.push(dIdx === 0 ? sortedAllItems.findIndex(it => it.id === item.id) + 1 : "");
             } else if (h === "Item") {
               row.push(dIdx === 0 ? item.item_name : "");
             } else if (h === "Notes") {
@@ -2153,7 +2156,7 @@ export default function CreateSketchPlan() {
 
         itemDims.forEach((dim: any, dIdx: number) => {
           const row: any = {};
-          if (selectedPdfCols.includes("#")) row["S.No"] = dIdx === 0 ? sortedAllItems.indexOf(item) + 1 : "";
+          if (selectedPdfCols.includes("#")) row["S.No"] = dIdx === 0 ? sortedAllItems.findIndex(it => it.id === item.id) + 1 : "";
           if (selectedPdfCols.includes("Item")) row["Item Name"] = dIdx === 0 ? item.item_name : "";
           if (selectedPdfCols.includes("Notes")) row["Notes"] = dIdx === 0 ? item.description : (dim.note || "");
           if (selectedPdfCols.includes("L")) row["L"] = dim.length || "";
@@ -2851,10 +2854,10 @@ export default function CreateSketchPlan() {
                         if (currentPage > 1) {
                           setCurrentPage(prev => prev - 1);
                         } else {
-                          const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort()];
+                          const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean) as string[]))].sort();
                           const currentIdx = catList.indexOf(categoryFilter);
                           if (currentIdx > 0) {
-                            setCategoryFilter(catList[currentIdx - 1]);
+                            setCategoryFilter(catList[currentIdx - 1] || "all");
                             setCurrentPage(1);
                           }
                         }
@@ -2902,10 +2905,10 @@ export default function CreateSketchPlan() {
                         if (currentPage < totalPages) {
                           setCurrentPage(prev => prev + 1);
                         } else {
-                          const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort()];
+                          const catList = ["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean) as string[]))].sort();
                           const currentIdx = catList.indexOf(categoryFilter);
                           if (currentIdx < catList.length - 1) {
-                            setCategoryFilter(catList[currentIdx + 1]);
+                            setCategoryFilter(catList[currentIdx + 1] || "all");
                             setCurrentPage(1);
                           }
                         }
@@ -2916,7 +2919,7 @@ export default function CreateSketchPlan() {
                   </div>
 
                   <div className="hidden lg:flex items-center gap-1.5">
-                    {["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort()].map((cat, idx) => (
+                    {(["all", ...Array.from(new Set(items.map(it => it.category).filter(Boolean) as string[]))].sort() as string[]).map((cat, idx) => (
                       <TooltipProvider key={cat}>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -2975,7 +2978,7 @@ export default function CreateSketchPlan() {
                             key={item.id}
                             item={item}
                             idx={items.indexOf(item)}
-                            displayIdx={sortedAllItems.indexOf(item) + 1}
+                            displayIdx={sortedAllItems.findIndex(it => it.id === item.id) + 1}
                             itemsLength={items.length}
                             isLocked={isLocked || userRole === "supplier"}
                             isFiltering={isFiltering}
