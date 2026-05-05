@@ -8417,30 +8417,42 @@ export async function registerRoutes(
 
       const shopNames = new Set();
 
-      // Helper: recursively extract shop_name from items and their nested step11_items
-      const extractShopNames = (items: any[]) => {
+      // Helper: recursively extract shop_name from items and their nested step11_items, but ONLY if qty > 0
+      const extractShopNames = (items: any[], scale: number = 1) => {
         for (const item of items) {
-          const name = item.shop_name || item.shopName;
-          if (name && typeof name === "string" && name.trim().length > 0) {
-            shopNames.add(name.trim());
+          const qty = (parseFloat(item.qty || item.quantity || item.requiredQty || 1) || 0) * scale;
+          
+          if (qty > 0) {
+            const name = item.shop_name || item.shopName;
+            if (name && typeof name === "string" && name.trim().length > 0) {
+              shopNames.add(name.trim());
+            }
           }
+          
           // Drill into nested step11_items (consolidated products)
           if (Array.isArray(item.step11_items)) {
-            extractShopNames(item.step11_items);
+            extractShopNames(item.step11_items, scale);
           }
         }
       }
 
       for (const row of itemsResult.rows) {
         const td = parseSafeTableData(row.table_data);
-        // For engine-based products, prioritize materialLines (they have shop_name)
-        if (Array.isArray(td.materialLines) && td.targetRequiredQty !== undefined) {
-          extractShopNames(td.materialLines);
+        
+        if (td.materialLines && td.targetRequiredQty !== undefined) {
+          // Engine-based product
+          const base = Number(td.baseRequiredQty || td.configBasis?.baseRequiredQty || 1);
+          const scale = Number(td.targetRequiredQty) / base;
+          
+          if (Array.isArray(td.materialLines)) extractShopNames(td.materialLines, scale);
+          if (Array.isArray(td.step11_items)) extractShopNames(td.step11_items, 1);
+        } else {
+          // Non-engine product
+          if (Array.isArray(td.step11_items)) extractShopNames(td.step11_items, 1);
+          else if (Array.isArray(td.materialLines)) extractShopNames(td.materialLines, 1);
+          else if (Array.isArray(td.rows)) extractShopNames(td.rows, 1);
+          else if (Array.isArray(td.items)) extractShopNames(td.items, 1);
         }
-        if (Array.isArray(td.step11_items)) extractShopNames(td.step11_items);
-        if (Array.isArray(td.materialLines)) extractShopNames(td.materialLines);
-        if (Array.isArray(td.items)) extractShopNames(td.items);
-        if (Array.isArray(td.rows)) extractShopNames(td.rows);
       }
 
       if (shopNames.size === 0) {
@@ -8594,6 +8606,9 @@ export async function registerRoutes(
           }
 
           for (const line of lines) {
+            const qty = parseFloat(line.qty || line.quantity || line.requiredQty || 0);
+            if (qty <= 0) continue; // Skip lines with no quantity
+
             const vendorName = (line.shop_name || line.shopName || "unassigned").trim();
             if (!vendorGroups[vendorName]) {
               vendorGroups[vendorName] = [];
