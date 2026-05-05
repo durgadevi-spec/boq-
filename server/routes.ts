@@ -8608,9 +8608,21 @@ export async function registerRoutes(
         }
 
 
+        // 3. Before creating new POs, remove any existing POs for this specific version
+        // This prevents duplicating POs if the user clicks "Confirm & Generate" again.
+        const existingPOs = await query(
+          "SELECT id FROM purchase_orders WHERE project_id = $1 AND version_id = $2",
+          [projectId, versionId]
+        );
+        
+        for (const row of existingPOs.rows) {
+          await query("DELETE FROM purchase_order_items WHERE po_id = $1", [row.id]);
+          await query("DELETE FROM purchase_orders WHERE id = $1", [row.id]);
+        }
+
         const generatedPos = [];
 
-        // 3. For each vendor group, create a PO
+        // 4. For each vendor group, create a PO
         for (const [vendorName, items] of Object.entries(vendorGroups)) {
           if (vendorName === "unassigned") continue;
 
@@ -8630,7 +8642,6 @@ export async function registerRoutes(
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
             [poNumber, projectId, vendorId, vendorName, "draft", 0, versionId, versionNumber || null],
           );
-
 
           const poId = poResult.rows[0].id;
 
