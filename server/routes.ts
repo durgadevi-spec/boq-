@@ -5571,7 +5571,7 @@ export async function registerRoutes(
 
         if (status) {
           await query(
-            `UPDATE boq_versions SET status = $1, updated_at = NOW() WHERE id = $2`,
+            `UPDATE boq_versions SET status = $1, is_cleared = FALSE, updated_at = NOW() WHERE id = $2`,
             [status, versionId]
           );
 
@@ -5669,7 +5669,7 @@ export async function registerRoutes(
         await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS purchase_rejection_reason TEXT");
         await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_boq_submission BOOLEAN DEFAULT FALSE");
 
-        let queryStr = "SELECT * FROM boq_versions WHERE status != 'draft' AND ((is_cleared IS FALSE OR is_cleared IS NULL) OR status = 'edit_requested')";
+        let queryStr = "SELECT * FROM boq_versions WHERE status != 'draft' AND ((is_cleared IS FALSE OR is_cleared IS NULL) OR status = 'edit_requested' OR status = 'pending_approval' OR status = 'submitted')";
         const params: any[] = [];
 
         // Admin/purchase/product/pre_sales/software_team should see all approvals; enforce project permissions only on other roles.

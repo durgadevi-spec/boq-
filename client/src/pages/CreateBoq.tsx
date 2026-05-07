@@ -1795,25 +1795,28 @@ export default function CreateBom() {
   }, [boqItems]);
 
   useEffect(() => {
-    // If the version has a saved order, use it
+    let initialOrder: string[] = [];
     if (selectedVersion && (selectedVersion as any).category_order) {
       try {
         const savedOrder = (selectedVersion as any).category_order;
         if (Array.isArray(savedOrder) && savedOrder.length > 0) {
-          setProductCategoryOrder(savedOrder);
-          return;
+          initialOrder = savedOrder;
         }
       } catch (e) { console.error("Failed to parse category_order", e); }
     }
 
-    // Otherwise, derive from current items
-    if (productCategories.length > 0) {
-      setProductCategoryOrder(prev => {
-        const newCats = productCategories.filter(c => !prev.includes(c));
-        const stillPresent = prev.filter(c => productCategories.includes(c));
-        return [...stillPresent, ...newCats];
-      });
-    }
+    setProductCategoryOrder(prev => {
+      // Use initialOrder if this is the first time we're setting state, else use prev
+      const base = (prev.length === 0) ? initialOrder : prev;
+      
+      const newCats = productCategories.filter(c => !base.includes(c));
+      const stillPresent = base.filter(c => productCategories.includes(c));
+      
+      const result = [...stillPresent, ...newCats];
+      // Avoid state updates if nothing changed
+      if (prev.length > 0 && JSON.stringify(result) === JSON.stringify(prev)) return prev;
+      return result;
+    });
   }, [productCategories, selectedVersionId, selectedVersion]);
 
   // Auto-save category order when it changes
@@ -2523,61 +2526,47 @@ export default function CreateBom() {
       } catch (e) { console.warn("Backfill error", e); }
       setBoqItems(items);
     } catch { toast({ title: "Error", description: "Failed to load BOQ items", variant: "destructive" }); }
-  }, [selectedVersionId]);
+  }, [selectedVersionId, toast]);
 
   // ─── Refresh Categories ──────────────────────────────────────────────────────
-  // Fetches latest products, detects category mismatches in boqItems, and
-  // surgically updates only the changed items without touching any other data.
-  // IMPORTANT: Only updates if the SPECIFIC PRODUCT's category has changed.
-  // Never forces items to "General" or overwrites custom Areas.
   const handleRefreshCategories = useCallback(async () => {
     if (!selectedVersionId || isRefreshingCategories) return;
     setIsRefreshingCategories(true);
     try {
-      // Step 1: Fetch master data
-      const [prodRes, catRes, matRes] = await Promise.all([
+      const [prodRes, catRes, matTempRes, matRes] = await Promise.all([
         apiFetch("/api/products"),
         apiFetch("/api/categories"),
-        apiFetch("/api/material-templates")
+        apiFetch("/api/material-templates"),
+        apiFetch("/api/materials")
       ]);
 
-      if (!prodRes.ok || !catRes.ok || !matRes.ok) throw new Error("Failed to fetch master data");
+      if (!prodRes.ok || !catRes.ok || !matTempRes.ok || !matRes.ok) throw new Error("Failed to fetch master data");
 
       const pd = await prodRes.json();
-      const cd = await catRes.json();
+      const mtd = await matTempRes.json();
       const md = await matRes.json();
 
       const prodById = Object.fromEntries((pd.products || []).map((p: any) => [p.id, p]));
-      const matById = Object.fromEntries((md.templates || []).map((m: any) => [m.id, m]));
+      const matTempById = Object.fromEntries((mtd.templates || []).map((m: any) => [m.id, m]));
+      const matById = Object.fromEntries((md.materials || []).map((m: any) => [m.id, m]));
 
-      // Step 2: Detect mismatches and build update queue
       const changeLog: { itemName: string; from: string; to: string }[] = [];
       const updateTasks: Promise<void>[] = [];
 
       for (const item of boqItems) {
         const td = parseTableData(item.table_data);
         let hasChanges = false;
-        let updatedTd = JSON.parse(JSON.stringify(td)); // Deep copy to avoid mutations
+        let updatedTd = JSON.parse(JSON.stringify(td));
         const itemName = td.product_name || item.estimator || "Unknown Item";
 
-        // A) Update Product-level Category ONLY if the specific product's category has changed
-        // CRITICAL: Only update product-level categories if they match the CURRENT master product category.
-        // This prevents overwriting custom Areas with "General".
         if (td.product_id) {
           const masterProd = prodById[td.product_id];
           if (masterProd) {
             const currentCatName = (td.category_name || "").trim();
             const currentCat = (td.category || "").trim();
-            const latestProdCat = (masterProd.category_name || masterProd.category || "").trim(); // NO default "General"!
+            const latestProdCat = (masterProd.category_name || masterProd.category || "").trim();
 
-            // ONLY update if:
-            // 1. The ITEM'S current category matches the MASTER product's current category (already correct), OR
-            // 2. The ITEM'S current category was previously a master category (detect change), OR
-            // 3. Both fields are synchronized and different from master (means both are stale)
-            
-            // Update only if the product's category is non-empty AND different from current
-            // NEVER force to "General" - if master has no category, respect the item's current value
-            if (latestProdCat) { // Only update if master product HAS a category
+            if (latestProdCat) {
               if (currentCatName && currentCatName.toLowerCase() !== latestProdCat.toLowerCase()) {
                 updatedTd.category_name = latestProdCat;
                 hasChanges = true;
@@ -2591,46 +2580,48 @@ export default function CreateBom() {
                 }
               }
             }
-            // If master product has NO category, keep the item's existing category (don't force to General)
+          }
+        } else if (td.material_id || item.estimator?.startsWith('material_')) {
+          const matId = td.material_id || item.estimator.replace('material_', '');
+          // Check materials first, then templates
+          const masterMat = matById[matId] || matTempById[matId];
+          
+          if (masterMat && masterMat.category) {
+            const currentCat = (td.category_name || td.category || "").trim();
+            const latestCat = masterMat.category.trim();
+            if (latestCat && currentCat.toLowerCase() !== latestCat.toLowerCase()) {
+              updatedTd.category = latestCat;
+              updatedTd.category_name = latestCat;
+              hasChanges = true;
+              changeLog.push({ itemName: `${itemName}`, from: currentCat || "None", to: latestCat });
+            }
           }
         }
 
-        // B) Update Material Line Categories (inside the product)
-        // For materials, we can reliably match by ID and update if category changed
         const refreshLines = (lines: any[]) => {
           if (!Array.isArray(lines)) return lines;
           let linesChanged = false;
           const newLines = lines.map(line => {
             const matId = line.id || line.material_id;
             if (!matId) return line;
-            const masterMat = matById[matId];
+            const masterMat = matById[matId] || matTempById[matId];
             if (masterMat) {
-              const currentLineCat = (line.category || "").trim(); // No default
-              const latestMatCat = (masterMat.category || "").trim(); // No default
-              
-              // Only update if:
-              // 1. Master material HAS a category AND
-              // 2. Current category is different (or empty and master has one)
+              const currentLineCat = (line.category || "").trim();
+              const latestMatCat = (masterMat.category || "").trim();
               if (latestMatCat && currentLineCat && currentLineCat.toLowerCase() !== latestMatCat.toLowerCase()) {
                 hasChanges = true;
                 linesChanged = true;
                 changeLog.push({ itemName: line.name || line.title || "Material", from: currentLineCat, to: latestMatCat });
                 return { ...line, category: latestMatCat };
               }
-              // If current has a category but master doesn't, keep current (don't overwrite)
-              // If both empty, leave as is
             }
             return line;
           });
           return linesChanged ? newLines : lines;
         };
 
-        if (updatedTd.materialLines) {
-          updatedTd.materialLines = refreshLines(updatedTd.materialLines);
-        }
-        if (updatedTd.step11_items) {
-          updatedTd.step11_items = refreshLines(updatedTd.step11_items);
-        }
+        if (updatedTd.materialLines) updatedTd.materialLines = refreshLines(updatedTd.materialLines);
+        if (updatedTd.step11_items) updatedTd.step11_items = refreshLines(updatedTd.step11_items);
 
         if (hasChanges) {
           const task = apiFetch(`/api/boq-items/${item.id}`, {
@@ -2639,13 +2630,7 @@ export default function CreateBom() {
             body: JSON.stringify({ table_data: updatedTd }),
           }).then(async (res) => {
             if (res.ok) {
-              setBoqItems(prev =>
-                prev.map(bi =>
-                  bi.id === item.id ? { ...bi, table_data: updatedTd } : bi
-                )
-              );
-            } else {
-              console.warn(`Refresh: failed to update item ${item.id}`);
+              setBoqItems(prev => prev.map(bi => bi.id === item.id ? { ...bi, table_data: updatedTd } : bi));
             }
           });
           updateTasks.push(task);
@@ -3226,7 +3211,7 @@ export default function CreateBom() {
         setBoqItems(newItems);
         
         // Remove from database
-        for (const id of idsToRemove) {
+        for (const id of Array.from(idsToRemove)) {
           await apiFetch(`/api/boq-items/${id}`, { method: "DELETE" });
         }
 
