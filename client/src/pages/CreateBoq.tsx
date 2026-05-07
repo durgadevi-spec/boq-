@@ -2269,14 +2269,14 @@ export default function CreateBom() {
             finalize_description: desc,
             finalize_qty: qty,
             finalize_rate: rate,
-            unit: item.unit || "nos",
+            unit: item.dimension_unit || item.unit || "nos",
             step11_items: [
               {
                 s_no: 1,
                 material_id: mId || null,
                 title: item.item_name || "Sketch Item",
                 description: desc,
-                unit: item.unit || "nos",
+                unit: item.dimension_unit || item.unit || "nos",
                 qty,
                 supply_rate: rate,
                 install_rate: 0,
