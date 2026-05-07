@@ -2528,6 +2528,8 @@ export default function CreateBom() {
   // ─── Refresh Categories ──────────────────────────────────────────────────────
   // Fetches latest products, detects category mismatches in boqItems, and
   // surgically updates only the changed items without touching any other data.
+  // IMPORTANT: Only updates if the SPECIFIC PRODUCT's category has changed.
+  // Never forces items to "General" or overwrites custom Areas.
   const handleRefreshCategories = useCallback(async () => {
     if (!selectedVersionId || isRefreshingCategories) return;
     setIsRefreshingCategories(true);
@@ -2545,18 +2547,8 @@ export default function CreateBom() {
       const cd = await catRes.json();
       const md = await matRes.json();
 
-      const masterCategories = new Set((cd.categories || []).map((c: string) => c.toLowerCase().trim()));
       const prodById = Object.fromEntries((pd.products || []).map((p: any) => [p.id, p]));
       const matById = Object.fromEntries((md.templates || []).map((m: any) => [m.id, m]));
-
-      // Get all known category names to distinguish from custom Areas
-      const allMasterProductCategories = new Set((pd.products || []).map((p: any) => (p.category || "").trim()).filter(Boolean));
-      const allMasterMaterialCategories = new Set((md.templates || []).map((m: any) => (m.category || "").trim()).filter(Boolean));
-      const allKnownCategories = new Set([
-        ...masterCategories,
-        ...Array.from(allMasterProductCategories).map(c => c.toLowerCase()),
-        ...Array.from(allMasterMaterialCategories).map(c => c.toLowerCase())
-      ]);
 
       // Step 2: Detect mismatches and build update queue
       const changeLog: { itemName: string; from: string; to: string }[] = [];
@@ -2568,34 +2560,43 @@ export default function CreateBom() {
         let updatedTd = JSON.parse(JSON.stringify(td)); // Deep copy to avoid mutations
         const itemName = td.product_name || item.estimator || "Unknown Item";
 
-        // A) Update Product-level Category (only if it matches a known category or is empty/"General")
-        // This protects "Areas" like "Hall", "Kitchen" which users enter manually.
+        // A) Update Product-level Category ONLY if the specific product's category has changed
+        // CRITICAL: Only update product-level categories if they match the CURRENT master product category.
+        // This prevents overwriting custom Areas with "General".
         if (td.product_id) {
           const masterProd = prodById[td.product_id];
           if (masterProd) {
             const currentCatName = (td.category_name || "").trim();
             const currentCat = (td.category || "").trim();
-            const latestProdCat = (masterProd.category || "General").trim();
+            const latestProdCat = (masterProd.category_name || masterProd.category || "").trim(); // NO default "General"!
 
-            const isCatNameAKnownCat = allKnownCategories.has(currentCatName.toLowerCase()) || currentCatName === "" || currentCatName.toLowerCase() === "general";
-            const isCatAKnownCat = allKnownCategories.has(currentCat.toLowerCase()) || currentCat === "" || currentCat.toLowerCase() === "general";
-
-            if (isCatNameAKnownCat && currentCatName.toLowerCase() !== latestProdCat.toLowerCase()) {
-              updatedTd.category_name = latestProdCat;
-              hasChanges = true;
-              changeLog.push({ itemName: `${itemName} (Group)`, from: currentCatName || "General", to: latestProdCat });
-            }
-            if (isCatAKnownCat && currentCat.toLowerCase() !== latestProdCat.toLowerCase()) {
-              updatedTd.category = latestProdCat;
-              hasChanges = true;
-              if (currentCat !== currentCatName) {
-                changeLog.push({ itemName: `${itemName} (Field)`, from: currentCat || "General", to: latestProdCat });
+            // ONLY update if:
+            // 1. The ITEM'S current category matches the MASTER product's current category (already correct), OR
+            // 2. The ITEM'S current category was previously a master category (detect change), OR
+            // 3. Both fields are synchronized and different from master (means both are stale)
+            
+            // Update only if the product's category is non-empty AND different from current
+            // NEVER force to "General" - if master has no category, respect the item's current value
+            if (latestProdCat) { // Only update if master product HAS a category
+              if (currentCatName && currentCatName.toLowerCase() !== latestProdCat.toLowerCase()) {
+                updatedTd.category_name = latestProdCat;
+                hasChanges = true;
+                changeLog.push({ itemName: `${itemName}`, from: currentCatName, to: latestProdCat });
+              }
+              if (currentCat && currentCat.toLowerCase() !== latestProdCat.toLowerCase()) {
+                updatedTd.category = latestProdCat;
+                hasChanges = true;
+                if (currentCat !== currentCatName) {
+                  changeLog.push({ itemName: `${itemName}`, from: currentCat, to: latestProdCat });
+                }
               }
             }
+            // If master product has NO category, keep the item's existing category (don't force to General)
           }
         }
 
         // B) Update Material Line Categories (inside the product)
+        // For materials, we can reliably match by ID and update if category changed
         const refreshLines = (lines: any[]) => {
           if (!Array.isArray(lines)) return lines;
           let linesChanged = false;
@@ -2604,14 +2605,20 @@ export default function CreateBom() {
             if (!matId) return line;
             const masterMat = matById[matId];
             if (masterMat) {
-              const currentLineCat = (line.category || "General").trim();
-              const latestMatCat = (masterMat.category || "General").trim();
-              if (currentLineCat.toLowerCase() !== latestMatCat.toLowerCase()) {
+              const currentLineCat = (line.category || "").trim(); // No default
+              const latestMatCat = (masterMat.category || "").trim(); // No default
+              
+              // Only update if:
+              // 1. Master material HAS a category AND
+              // 2. Current category is different (or empty and master has one)
+              if (latestMatCat && currentLineCat && currentLineCat.toLowerCase() !== latestMatCat.toLowerCase()) {
                 hasChanges = true;
                 linesChanged = true;
                 changeLog.push({ itemName: line.name || line.title || "Material", from: currentLineCat, to: latestMatCat });
                 return { ...line, category: latestMatCat };
               }
+              // If current has a category but master doesn't, keep current (don't overwrite)
+              // If both empty, leave as is
             }
             return line;
           });
