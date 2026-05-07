@@ -2968,18 +2968,23 @@ export default function CreateSketchPlan() {
                           <th className={cn("w-10 px-2 text-center", isCompact ? "py-1" : "py-3")}>Del</th>
                         </tr>
                       </thead>
-                      <Reorder.Group as="tbody" axis="y" values={isFiltering ? items : items} onReorder={(newOrder) => {
+                      <Reorder.Group as="tbody" axis="y" values={paginatedItems} onReorder={(newPaginatedOrder) => {
                         if (isFiltering) return;
-                        setItems(newOrder);
+                        const startIndex = (currentPage - 1) * pageSize;
+                        const nextItems = [...items];
+                        nextItems.splice(startIndex, paginatedItems.length, ...newPaginatedOrder);
+                        setItems(nextItems);
                         if (sortBy !== "none") setSortBy("none");
-                      }} key={sortBy}>
-                        {paginatedItems.map((item, pIdx) => (
-                          <SketchPlanRow
-                            key={item.id}
-                            item={item}
-                            idx={items.indexOf(item)}
-                            displayIdx={sortedAllItems.findIndex(it => it.id === item.id) + 1}
-                            itemsLength={items.length}
+                      }} key={`${sortBy}-${currentPage}`}>
+                        {paginatedItems.map((item, pIdx) => {
+                          const globalIdx = (currentPage - 1) * pageSize + pIdx;
+                          return (
+                            <SketchPlanRow
+                              key={item.id}
+                              item={item}
+                              idx={items.indexOf(item)} // Keep original items index for reordering logic
+                              displayIdx={globalIdx + 1}
+                              itemsLength={items.length}
                             isLocked={isLocked || userRole === "supplier"}
                             isFiltering={isFiltering}
                             isCompact={isCompact}
@@ -3014,7 +3019,8 @@ export default function CreateSketchPlan() {
                             cloneItem={cloneItem}
                             categories={categories}
                           />
-                        ))}
+                          );
+                        })}
                       </Reorder.Group>
                     </table>
                   </div>

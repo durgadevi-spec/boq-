@@ -1355,13 +1355,20 @@ export default function FinalizeBoq() {
             const typeValues = Object.values(restoredOverrideTypes);
             const percentageCount = typeValues.filter(t => t === 'percentage').length;
             const valueCount = typeValues.filter(t => t === 'value').length;
-            // Strongly default to percentage mode
+            
             if (valueCount > percentageCount) {
               setGlobalOverrideType('value');
             } else {
               setGlobalOverrideType('percentage');
             }
           }
+
+          // Restore globalOverrideValue from the first item if they are all identical
+          const firstId = items[0]?.id;
+          if (firstId && restoredOverrideRates[firstId]) {
+            setGlobalOverrideValue(restoredOverrideRates[firstId]);
+          }
+
           setHideSystemTotalFooter(sysTotalHidden);
           setGrandTotalColumn(restoredGrandTotalCol);
           setHiddenPredefinedCols(restoredHiddenPredefined);
@@ -4260,10 +4267,24 @@ export default function FinalizeBoq() {
                                 <select
                                   value={globalOverrideType}
                                   disabled={isVersionSubmitted}
-                                  onChange={(e) => {
+                                  onChange={async (e) => {
                                     const newType = e.target.value as "value" | "percentage";
                                     setGlobalOverrideType(newType);
-                                    setOverrideTypes(prev => Object.keys(prev).reduce((acc, key) => ({ ...acc, [key]: newType }), {}));
+                                    
+                                    // Update local state for all rows
+                                    setOverrideTypes(prev => {
+                                      const updated = { ...prev };
+                                      boqItems.forEach(item => { updated[item.id] = newType; });
+                                      return updated;
+                                    });
+
+                                    // Persist to DB for all items
+                                    toast({ title: "Applying Changes", description: `Setting override mode to ${newType}...` });
+                                    const updates = boqItems.map(item => {
+                                      return saveItemLayout(item.id, undefined, undefined, undefined, undefined, undefined, undefined, undefined, newType);
+                                    });
+                                    await Promise.all(updates);
+                                    toast({ title: "Updated", description: `All items set to ${newType === 'percentage' ? 'Margin %' : 'Override ₹'}` });
                                   }}
                                   className="w-20 border border-gray-300 rounded px-1 py-0.5 text-[9px] font-bold bg-white text-gray-700 outline-none shadow-sm"
                                 >
@@ -4277,28 +4298,24 @@ export default function FinalizeBoq() {
                                 disabled={isVersionSubmitted}
                                 onChange={(e) => {
                                   setGlobalOverrideValue(e.target.value);
-                                  if (e.target.value) {
-                                    const newVal = e.target.value;
-                                    setOverrideRates(prev => {
-                                      const updated = { ...prev };
-                                      boqItems.forEach(item => {
-                                        updated[item.id] = newVal;
-                                      });
-                                      return updated;
-                                    });
-                                  }
+                                  // Update local state immediately for UI feedback
+                                  const newVal = e.target.value;
+                                  setOverrideRates(prev => {
+                                    const updated = { ...prev };
+                                    boqItems.forEach(item => { updated[item.id] = newVal; });
+                                    return updated;
+                                  });
                                 }}
-                                onBlur={() => {
-                                  if (globalOverrideValue) {
-                                    const newVal = globalOverrideValue;
-                                    setOverrideRates(prev => {
-                                      const updated = { ...prev };
-                                      boqItems.forEach(item => {
-                                        updated[item.id] = newVal;
-                                      });
-                                      return updated;
-                                    });
-                                  }
+                                onBlur={async () => {
+                                  const newVal = globalOverrideValue;
+                                  if (!newVal) return;
+                                  
+                                  toast({ title: "Applying Global Rate", description: `Updating all items...` });
+                                  const updates = boqItems.map(item => {
+                                    return saveItemLayout(item.id, undefined, undefined, undefined, undefined, newVal, undefined, undefined, globalOverrideType);
+                                  });
+                                  await Promise.all(updates);
+                                  toast({ title: "Success", description: `Global rate applied to all items.` });
                                 }}
                                 placeholder="0.00"
                                 className="w-16 border border-gray-300 rounded px-1 py-0.5 text-[9px] font-semibold bg-white text-gray-700 outline-none text-center"
