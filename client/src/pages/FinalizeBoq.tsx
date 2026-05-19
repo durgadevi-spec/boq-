@@ -778,6 +778,81 @@ export default function FinalizeBoq() {
     }
   };
 
+  const handleLabourOnlyBulk = async () => {
+    if (selectedProductIds.size === 0) {
+      toast({ title: "No items selected", description: "Please select items first.", variant: "destructive" });
+      return;
+    }
+
+    const selectedItems = boqItems.filter(i => selectedProductIds.has(i.id));
+
+    // Helper to find column name flexibly
+    const findCol = (cols: any[], terms: string[], exclude: string[] = ["amount", "total"]) => {
+      return cols.find(c => {
+        const n = c.name.toLowerCase();
+        return terms.every(t => n.includes(t.toLowerCase())) && !exclude.some(e => n.includes(e));
+      });
+    };
+
+    const itemsToUpdate = selectedItems.filter(item => {
+      const cols = customColumns[item.id] || [];
+      const supplyCol = findCol(cols, ["supply", "rate"]);
+      const labourCol = findCol(cols, ["labour", "rate"]) || findCol(cols, ["install", "rate"]) || findCol(cols, ["service", "rate"]);
+      return supplyCol && labourCol;
+    });
+
+    if (itemsToUpdate.length === 0) {
+      toast({
+        title: "No matching items",
+        description: "Selected items must have both 'Supply Rate' and 'Labour/Install/Service Rate' columns.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    toast({ title: "Applying Labour Only", description: `Updating ${itemsToUpdate.length} item(s)...` });
+
+    try {
+      const updates = itemsToUpdate.map(async (item) => {
+        const cols = customColumns[item.id] || [];
+        const nextVals = { ...(customColumnValues[item.id] || {}) };
+        const rowVals = { ...(nextVals[0] || {}) };
+
+        const supplyCol = findCol(cols, ["supply", "rate"]);
+        const labourCol = findCol(cols, ["labour", "rate"]) || findCol(cols, ["install", "rate"]) || findCol(cols, ["service", "rate"]);
+
+        if (supplyCol && labourCol) {
+          // Update column configurations (percentage values)
+          const nextCols = cols.map(c => {
+            if (c.name === supplyCol.name) return { ...c, percentageValue: 0 };
+            if (c.name === labourCol.name) return { ...c, percentageValue: 100 };
+            return c;
+          });
+
+          // Update pre-calculated values
+          rowVals[supplyCol.name] = "0";
+          rowVals[labourCol.name] = "100";
+          nextVals[0] = rowVals;
+
+          // Update local state optimistically
+          setCustomColumns(prev => ({ ...prev, [item.id]: nextCols }));
+          setCustomColumnValues(prev => ({ ...prev, [item.id]: nextVals }));
+
+          // Persist to DB
+          return saveItemLayout(item.id, nextCols, nextVals);
+        }
+      });
+
+      await Promise.all(updates);
+      setSelectedProductIds(new Set());
+      toast({ title: "Success", description: `Labour Only applied to ${itemsToUpdate.length} items.` });
+      loadBoqItemsAndEdits(selectedBoqVersionId || selectedBomVersionId);
+    } catch (e) {
+      console.error("Labour Only bulk update failed:", e);
+      toast({ title: "Error", description: "Failed to apply bulk action.", variant: "destructive" });
+    }
+  };
+
 
 
   // BOM versions: only show approved versions for selection
@@ -4497,6 +4572,15 @@ export default function FinalizeBoq() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="h-9 px-4 text-[12px] font-bold uppercase border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400 transition-all shadow-sm h-9"
+                      disabled={selectedProductIds.size === 0}
+                      onClick={handleLabourOnlyBulk}
+                    >
+                      <Briefcase className="w-3.5 h-3.5 mr-1.5" /> Labour Only ({selectedProductIds.size})
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="h-9 px-4 text-[12px] font-bold uppercase border-slate-300 text-slate-700 hover:bg-slate-50 transition-all shadow-sm h-9"
                       onClick={() => setIsColumnManagerOpen(true)}
                     >
@@ -4751,10 +4835,36 @@ export default function FinalizeBoq() {
                             style={{ left: gripWidth }} 
                             className="sticky border-r border-gray-300 px-1 py-2.5 text-left text-[11px] group relative bg-gray-200 z-30 col-sno col-sno-sticky"
                           >
-                            <div className="flex items-center justify-between gap-1">
-                              <span>S.No</span>
+                            <div className="flex flex-col items-center gap-1.5 justify-center">
+                              <div className="flex items-center justify-between w-full gap-1">
+                                <span className="font-bold text-[10px] text-gray-700">S.No</span>
+                                {!isVersionSubmitted && (
+                                  <button onClick={() => handleHideColumn("S.No", true)} className="text-gray-400 hover:text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Hide Column"><EyeOff size={10} /></button>
+                                )}
+                              </div>
                               {!isVersionSubmitted && (
-                                <button onClick={() => handleHideColumn("S.No", true)} className="text-gray-400 hover:text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Hide Column"><EyeOff size={10} /></button>
+                                <input
+                                  type="checkbox"
+                                  checked={paginatedBoqItems.length > 0 && paginatedBoqItems.every(i => selectedProductIds.has(i.id))}
+                                  ref={el => {
+                                    if (el) {
+                                      const some = paginatedBoqItems.some(i => selectedProductIds.has(i.id));
+                                      const all = paginatedBoqItems.every(i => selectedProductIds.has(i.id));
+                                      el.indeterminate = some && !all;
+                                    }
+                                  }}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    const nextSelected = new Set(selectedProductIds);
+                                    if (checked) {
+                                      paginatedBoqItems.forEach(item => nextSelected.add(item.id));
+                                    } else {
+                                      paginatedBoqItems.forEach(item => nextSelected.delete(item.id));
+                                    }
+                                    setSelectedProductIds(nextSelected);
+                                  }}
+                                  className="w-3.5 h-3.5 cursor-pointer accent-blue-600 rounded"
+                                />
                               )}
                             </div>
                             <div
@@ -5137,7 +5247,7 @@ export default function FinalizeBoq() {
                               >
                                 <div className="flex flex-col items-center gap-1">
                                   <span className="text-[10px] font-bold text-gray-500">
-                                    {boqItems.findIndex(i => i.id === boqItem.id) + 1}
+                                    {filteredBoqItems.findIndex(i => i.id === boqItem.id) + 1}
                                   </span>
                                   <div className="text-gray-300 hover:text-blue-400 transition-colors flex items-center justify-center">
 
