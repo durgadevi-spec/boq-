@@ -1264,13 +1264,22 @@ export default function FinalizeBoq() {
       const overrideType = overrideTypes[item.id] ?? globalOverrideType ?? "value";
       const overrideRateRaw = parseFloat((overrideRates[item.id] ?? globalOverrideValue) || "0") || 0;
       let effectiveOverrideRate = 0;
+      let overrideMarkupTotal = 0;
+
       if (overrideType === "percentage") {
         effectiveOverrideRate = itemRate * overrideRateRaw / 100;
       } else {
         effectiveOverrideRate = overrideRateRaw;
       }
+
       const overrideRate = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
-      const overrideMarkupTotal = roundOff ? Math.round(overrideRate * displayQty) : overrideRate * displayQty;
+      
+      if (overrideType === "percentage") {
+        overrideMarkupTotal = roundOff ? Math.round(overrideRate * displayQty) : overrideRate * displayQty;
+      } else {
+        overrideMarkupTotal = overrideRate; // Flat addition for value type
+      }
+
       const overrideTotalVal = overrideRateRaw !== 0 ? (baseTotalValue + overrideMarkupTotal) : baseTotalValue;
       overrideTotalSum += overrideTotalVal;
 
@@ -2967,13 +2976,16 @@ export default function FinalizeBoq() {
         const overrideType = overrideTypes[boqItem.id] ?? globalOverrideType ?? "value";
         const overrideInputVal = parseFloat((overrideRates[boqItem.id] ?? globalOverrideValue) || "0") || 0;
         let effectiveOverrideRate = 0;
+        let overrideMarkupVal = 0;
+
         if (overrideType === "percentage") {
           effectiveOverrideRate = rateSqft * overrideInputVal / 100;
+          overrideMarkupVal = effectiveOverrideRate * displayQty;
         } else {
           effectiveOverrideRate = overrideInputVal;
+          overrideMarkupVal = effectiveOverrideRate; // Flat addition
         }
 
-        const overrideMarkupVal = effectiveOverrideRate * displayQty;
         const overrideTotalVal = overrideInputVal !== 0 ? (totalVal + overrideMarkupVal) : totalVal;
         let currentRunningTotal = overrideTotalVal;
         let accumulator = 0;
@@ -3008,7 +3020,7 @@ export default function FinalizeBoq() {
           }
           else if (colName === "Qty") rowValues[colName] = roundOff ? Math.round(displayQty) : Number(displayQty.toFixed(2));
           else if (colName === "Total Value (₹)") rowValues[colName] = roundOff ? Math.round(totalVal) : Number(totalVal.toFixed(2));
-          else if (colName === "Override Rate") rowValues[colName] = roundOff ? Math.round(effectiveOverrideRate) : Number(effectiveOverrideRate.toFixed(2));
+          else if (colName === "Override Rate") rowValues[colName] = roundOff ? Math.round(overrideInputVal) : Number(overrideInputVal.toFixed(2));
           else if (colName === "Override Total") rowValues[colName] = roundOff ? Math.round(overrideTotalVal) : Number(overrideTotalVal.toFixed(2));
           else {
             const currentCol = allCols.find(c => c.name === colName);
@@ -3268,16 +3280,19 @@ export default function FinalizeBoq() {
         const customVals: string[] = [];
 
         // Calculate effective override rate based on type
-        const overrideType = globalOverrideType;
+        const overrideType = overrideTypes[boqItem.id] ?? globalOverrideType ?? "value";
         const overrideInputVal = parseFloat((overrideRates[boqItem.id] ?? globalOverrideValue) || "0") || 0;
         let effectiveOverrideRate = 0;
+        let overrideMarkupValPdf = 0;
+
         if (overrideType === "percentage") {
           effectiveOverrideRate = rateSqft * overrideInputVal / 100;
+          overrideMarkupValPdf = effectiveOverrideRate * displayQty;
         } else {
           effectiveOverrideRate = overrideInputVal;
+          overrideMarkupValPdf = effectiveOverrideRate; // Flat addition
         }
 
-        const overrideMarkupValPdf = effectiveOverrideRate * displayQty;
         const overrideTotalVal = overrideInputVal !== 0 ? (totalVal + overrideMarkupValPdf) : totalVal;
         let runningTotal = overrideTotalVal;
         let accumulator = 0;
@@ -3330,7 +3345,7 @@ export default function FinalizeBoq() {
         if (selectedPdfExportCols.includes("Qty")) row.push(roundOff ? Math.round(displayQty).toString() : displayQty.toFixed(2));
         if (selectedPdfExportCols.includes("Rate")) row.push(roundOff ? Math.round(rateSqft).toString() : rateSqft.toFixed(2));
         if (selectedPdfExportCols.includes("Total")) row.push(roundOff ? Math.round(totalVal).toString() : totalVal.toFixed(2));
-        if (selectedPdfExportCols.includes("Override Rate")) row.push(roundOff ? Math.round(effectiveOverrideRate).toString() : effectiveOverrideRate.toFixed(2));
+        if (selectedPdfExportCols.includes("Override Rate")) row.push(roundOff ? Math.round(overrideInputVal).toString() : overrideInputVal.toFixed(2));
         if (selectedPdfExportCols.includes("Override Total")) row.push(roundOff ? Math.round(overrideTotalVal).toString() : overrideTotalVal.toFixed(2));
 
         allCols.forEach((col, idx) => {
@@ -4611,8 +4626,9 @@ export default function FinalizeBoq() {
                           try {
                             const ids = Array.from(selectedProductIds);
                             await Promise.all(ids.map(id => apiFetch(`/api/boq-items/${id}?action=${action}`, { method: "DELETE" })));
-                            setBoqItems(prev => prev.filter(item => !selectedProductIds.has(item.id)));
                             setSelectedProductIds(new Set());
+                            // Reload all data from server to keep columns and state consistent
+                            loadBoqItemsAndEdits(activeVersionId);
                             toast({ title: action === 'trash' ? "Moved to Trash" : "Archived", description: `${ids.length} products removed successfully.` });
                           } catch {
                             toast({ title: "Error", description: "Failed to delete some products", variant: "destructive" });
@@ -5444,15 +5460,17 @@ export default function FinalizeBoq() {
                                   const systemTotal = rateSqft * displayQty;
 
                                   let effectiveOverrideRate = 0;
+                                  let markupTotal = 0;
                                   if (overrideType === "percentage") {
                                     // Calculate override rate from percentage
                                     effectiveOverrideRate = rateSqft * overrideInputVal / 100;
+                                    markupTotal = effectiveOverrideRate * displayQty;
                                   } else {
-                                    // Use override rate directly
+                                    // Use override value directly as flat markup
                                     effectiveOverrideRate = overrideInputVal;
+                                    markupTotal = effectiveOverrideRate;
                                   }
 
-                                  const markupTotal = effectiveOverrideRate * displayQty;
                                   const rawVal = overrideInputVal !== 0 ? (systemTotal + markupTotal) : systemTotal;
                                   
                                   return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
@@ -5470,14 +5488,19 @@ export default function FinalizeBoq() {
                               const overrideType = overrideTypes[boqItem.id] ?? globalOverrideType ?? "value";
                               const overrideInputVal = parseFloat((overrideRates[boqItem.id] ?? globalOverrideValue) || "0") || 0;
                               let effectiveOverrideRate = 0;
+                              let overrideMarkupTotalForRender = 0;
+
                               if (overrideType === "percentage") {
                                 effectiveOverrideRate = rateSqft * overrideInputVal / 100;
+                                const overrideRateForRender = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
+                                overrideMarkupTotalForRender = roundOff ? Math.round(overrideRateForRender * displayQty) : overrideRateForRender * displayQty;
                               } else {
                                 effectiveOverrideRate = overrideInputVal;
+                                const overrideRateForRender = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
+                                overrideMarkupTotalForRender = overrideRateForRender; // Flat addition
                               }
 
                               const overrideRateForRender = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
-                              const overrideMarkupTotalForRender = roundOff ? Math.round(overrideRateForRender * displayQty) : overrideRateForRender * displayQty;
                               const overrideTotalValForRender = overrideInputVal !== 0 ? (baseTotalValue + overrideMarkupTotalForRender) : baseTotalValue;
 
                               let itemRunningTotal = overrideTotalValForRender;
