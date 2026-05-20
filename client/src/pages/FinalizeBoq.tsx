@@ -1264,23 +1264,17 @@ export default function FinalizeBoq() {
       const overrideType = overrideTypes[item.id] ?? globalOverrideType ?? "value";
       const overrideRateRaw = parseFloat((overrideRates[item.id] ?? globalOverrideValue) || "0") || 0;
       let effectiveOverrideRate = 0;
-      let overrideMarkupTotal = 0;
-
       if (overrideType === "percentage") {
         effectiveOverrideRate = itemRate * overrideRateRaw / 100;
       } else {
         effectiveOverrideRate = overrideRateRaw;
       }
-
       const overrideRate = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
-      
-      if (overrideType === "percentage") {
-        overrideMarkupTotal = roundOff ? Math.round(overrideRate * displayQty) : overrideRate * displayQty;
-      } else {
-        overrideMarkupTotal = overrideRate; // Flat addition for value type
-      }
-
-      const overrideTotalVal = overrideRateRaw !== 0 ? (baseTotalValue + overrideMarkupTotal) : baseTotalValue;
+      const overrideMarkupTotal = roundOff ? Math.round(overrideRate * displayQty) : overrideRate * displayQty;
+      // % mode: adds markup on top of system total. ₹ mode: replaces rate entirely.
+      const overrideTotalVal = overrideRateRaw !== 0
+        ? (overrideType === "percentage" ? (baseTotalValue + overrideMarkupTotal) : overrideMarkupTotal)
+        : baseTotalValue;
       overrideTotalSum += overrideTotalVal;
 
       let currentItemRunningTotal = overrideTotalVal;
@@ -2976,17 +2970,17 @@ export default function FinalizeBoq() {
         const overrideType = overrideTypes[boqItem.id] ?? globalOverrideType ?? "value";
         const overrideInputVal = parseFloat((overrideRates[boqItem.id] ?? globalOverrideValue) || "0") || 0;
         let effectiveOverrideRate = 0;
-        let overrideMarkupVal = 0;
-
         if (overrideType === "percentage") {
           effectiveOverrideRate = rateSqft * overrideInputVal / 100;
-          overrideMarkupVal = effectiveOverrideRate * displayQty;
         } else {
           effectiveOverrideRate = overrideInputVal;
-          overrideMarkupVal = effectiveOverrideRate; // Flat addition
         }
 
-        const overrideTotalVal = overrideInputVal !== 0 ? (totalVal + overrideMarkupVal) : totalVal;
+        const overrideMarkupVal = effectiveOverrideRate * displayQty;
+        // % mode: adds markup on top. ₹ mode: replaces rate entirely.
+        const overrideTotalVal = overrideInputVal !== 0
+          ? (overrideType === "percentage" ? (totalVal + overrideMarkupVal) : overrideMarkupVal)
+          : totalVal;
         let currentRunningTotal = overrideTotalVal;
         let accumulator = 0;
 
@@ -3283,17 +3277,17 @@ export default function FinalizeBoq() {
         const overrideType = overrideTypes[boqItem.id] ?? globalOverrideType ?? "value";
         const overrideInputVal = parseFloat((overrideRates[boqItem.id] ?? globalOverrideValue) || "0") || 0;
         let effectiveOverrideRate = 0;
-        let overrideMarkupValPdf = 0;
-
         if (overrideType === "percentage") {
           effectiveOverrideRate = rateSqft * overrideInputVal / 100;
-          overrideMarkupValPdf = effectiveOverrideRate * displayQty;
         } else {
           effectiveOverrideRate = overrideInputVal;
-          overrideMarkupValPdf = effectiveOverrideRate; // Flat addition
         }
 
-        const overrideTotalVal = overrideInputVal !== 0 ? (totalVal + overrideMarkupValPdf) : totalVal;
+        const overrideMarkupValPdf = effectiveOverrideRate * displayQty;
+        // % mode: adds markup on top. ₹ mode: replaces rate entirely.
+        const overrideTotalVal = overrideInputVal !== 0
+          ? (overrideType === "percentage" ? (totalVal + overrideMarkupValPdf) : overrideMarkupValPdf)
+          : totalVal;
         let runningTotal = overrideTotalVal;
         let accumulator = 0;
         const rowCalculatedValues: { [colName: string]: number } = {};
@@ -5460,18 +5454,16 @@ export default function FinalizeBoq() {
                                   const systemTotal = rateSqft * displayQty;
 
                                   let effectiveOverrideRate = 0;
-                                  let markupTotal = 0;
                                   if (overrideType === "percentage") {
-                                    // Calculate override rate from percentage
                                     effectiveOverrideRate = rateSqft * overrideInputVal / 100;
-                                    markupTotal = effectiveOverrideRate * displayQty;
                                   } else {
-                                    // Use override value directly as flat markup
                                     effectiveOverrideRate = overrideInputVal;
-                                    markupTotal = effectiveOverrideRate;
                                   }
-
-                                  const rawVal = overrideInputVal !== 0 ? (systemTotal + markupTotal) : systemTotal;
+                                  const markupTotal = effectiveOverrideRate * displayQty;
+                                  // % mode: adds markup on top. ₹ mode: replaces rate entirely.
+                                  const rawVal = overrideInputVal !== 0
+                                    ? (overrideType === "percentage" ? (systemTotal + markupTotal) : markupTotal)
+                                    : systemTotal;
                                   
                                   return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
                                 })()}
@@ -5488,20 +5480,17 @@ export default function FinalizeBoq() {
                               const overrideType = overrideTypes[boqItem.id] ?? globalOverrideType ?? "value";
                               const overrideInputVal = parseFloat((overrideRates[boqItem.id] ?? globalOverrideValue) || "0") || 0;
                               let effectiveOverrideRate = 0;
-                              let overrideMarkupTotalForRender = 0;
-
                               if (overrideType === "percentage") {
                                 effectiveOverrideRate = rateSqft * overrideInputVal / 100;
-                                const overrideRateForRender = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
-                                overrideMarkupTotalForRender = roundOff ? Math.round(overrideRateForRender * displayQty) : overrideRateForRender * displayQty;
                               } else {
                                 effectiveOverrideRate = overrideInputVal;
-                                const overrideRateForRender = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
-                                overrideMarkupTotalForRender = overrideRateForRender; // Flat addition
                               }
-
                               const overrideRateForRender = roundOff ? Math.round(effectiveOverrideRate) : effectiveOverrideRate;
-                              const overrideTotalValForRender = overrideInputVal !== 0 ? (baseTotalValue + overrideMarkupTotalForRender) : baseTotalValue;
+                              const overrideMarkupTotalForRender = roundOff ? Math.round(overrideRateForRender * displayQty) : overrideRateForRender * displayQty;
+                              // % mode: adds markup on top. ₹ mode: replaces rate entirely.
+                              const overrideTotalValForRender = overrideInputVal !== 0
+                                ? (overrideType === "percentage" ? (baseTotalValue + overrideMarkupTotalForRender) : overrideMarkupTotalForRender)
+                                : baseTotalValue;
 
                               let itemRunningTotal = overrideTotalValForRender;
                               let accumulator = 0;
