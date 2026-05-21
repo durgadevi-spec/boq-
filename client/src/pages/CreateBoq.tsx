@@ -3838,33 +3838,44 @@ export default function CreateBom() {
 
         if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
           isEngineBased = true;
+          const targetQtyEngine = tableData.targetRequiredQty || 1;
           const boqResult = computeBoq(
             tableData.configBasis || { requiredUnitType: "Sqft", baseRequiredQty: 1, wastagePctDefault: 0 },
             tableData.materialLines || [],
-            tableData.targetRequiredQty || 1
+            targetQtyEngine
           );
-          const computedLines = boqResult.computed.map((line: any, idx: number) => ({
-            title: line.name, description: line.name, unit: line.unit, shop_name: line.shop_name,
-            qtyPerSqf: line.perUnitQty, requiredQty: line.scaledQty, roundOff: line.roundOffQty,
-            rateSqft: line.supplyRate + line.installRate, amount: line.lineTotal, s_no: idx + 1, manual: false,
-          }));
+          // FIX: Read user-edited values (freeze-and-edit rates, qty edits) — match UI logic
+          const computedLines = boqResult.computed.map((line: any, idx: number) => {
+            const itemKey = `${boqItem.id}-engine-${idx}`;
+            const isFrozen = line.freezeAndEdit || line.freeze_and_edit;
+            const qty = Number(getEditedValue(itemKey, "qty", line.perUnitQty));
+            const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
+            const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
+            const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            const isLumpSumLine = (line.unit || "").toLowerCase() === "ls";
+            const reqQty = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : Number((qty * targetQtyEngine).toFixed(2)));
+            const roundOff = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : (line.applyRounding !== false ? Math.ceil(reqQty) : reqQty));
+            return {
+              title: line.name, description: line.name, unit: line.unit, shop_name: line.shop_name,
+              qtyPerSqf: isLumpSumLine ? 1 : qty, requiredQty: reqQty, roundOff: roundOff,
+              rateSqft: rate, amount: Number((roundOff * rate).toFixed(2)), s_no: idx + 1, manual: false,
+            };
+          });
           const manualStep11 = step11Items.map((it: any, s11Idx: number) => {
             if (!it?.manual) return null;
-            // Also skip if this item is somehow already represented in materialLines (by ID comparison)
             if (tableData.materialLines?.some((ml: any) => (ml.id || ml.materialId) === it.id)) return null;
 
             const itemKey = `${boqItem.id}-manual-${s11Idx}`;
-            const qty = Number(getEditedValue(itemKey, "qty", it.qty ?? 0)) || 0;
+            const qty = Number(getEditedValue(itemKey, "qty", it.qtyPerSqf ?? it.qty ?? 0)) || 0;
             const sRate = Number(getEditedValue(itemKey, "supply_rate", it.supply_rate ?? 0)) || 0;
             const iRate = Number(getEditedValue(itemKey, "install_rate", it.install_rate ?? 0)) || 0;
             const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
             const desc = getEditedValue(itemKey, "description", it.description || "");
             const u = getEditedValue(itemKey, "unit", it.unit || "nos");
-            // LS qty should not be scaled by targetRequiredQty - it's always a fixed amount
             const isLumpSum = u.toLowerCase() === "ls";
-            const displayQty = isLumpSum ? qty : qty;
+            const displayQty = isLumpSum ? 1 : qty;
             return {
-              ...it, manual: true, itemKey, _s11Idx: s11Idx, qtyPerSqf: it.qtyPerSqf ?? 0,
+              ...it, manual: true, itemKey, _s11Idx: s11Idx, qtyPerSqf: isLumpSum ? 1 : qty,
               requiredQty: displayQty, roundOff: "-", description: desc, unit: u,
               rateSqft: rate, amount: Number((displayQty * rate).toFixed(2))
             };
@@ -3876,18 +3887,21 @@ export default function CreateBom() {
 
           displayLines = step11Items.map((it: any, s11Idx: number) => {
             const itemKey = it.itemKey || `${boqItem.id}-${s11Idx}`;
-            const baseQty = Number(getEditedValue(itemKey, "qty", it.qty ?? 0)) || 0;
+            const baseQty = Number(getEditedValue(itemKey, "qty", it.qtyPerSqf ?? it.qty ?? 0)) || 0;
             const u = getEditedValue(itemKey, "unit", it.unit || "nos");
             const isLumpSum = u.toLowerCase() === "ls";
-            const scaledQty = isLumpSum ? baseQty : Number((baseQty * target).toFixed(2));
+            // FIX: Match UI logic — manual items should NOT be scaled by target
+            const isManual = it.manual || !tableData.materialLines;
+            const scaledQty = isManual ? (isLumpSum ? 1 : baseQty) : (isLumpSum ? 1 : Number((baseQty * target).toFixed(2)));
+            const roundOff = (it.applyRounding !== false && !isManual && !isLumpSum) ? Math.ceil(scaledQty) : scaledQty;
             const sRate = Number(getEditedValue(itemKey, "supply_rate", it.supply_rate ?? 0)) || 0;
             const iRate = Number(getEditedValue(itemKey, "install_rate", it.install_rate ?? 0)) || 0;
             const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
             const desc = getEditedValue(itemKey, "description", it.description || "");
             return {
               ...it, itemKey, _s11Idx: s11Idx,
-              qtyPerSqf: baseQty, requiredQty: scaledQty, roundOff: "-", description: desc, unit: u,
-              rateSqft: rate, amount: Number((scaledQty * rate).toFixed(2))
+              qtyPerSqf: isLumpSum ? 1 : baseQty, requiredQty: scaledQty, roundOff: roundOff, description: desc, unit: u,
+              rateSqft: rate, amount: Number((roundOff * rate).toFixed(2))
             };
           });
         }
@@ -3920,17 +3934,17 @@ export default function CreateBom() {
         const roundOff = logicalTotal - productGrandTotal;
 
         if (Math.abs(roundOff) >= 0.01) {
-          exportData.push(["", "Round Off (Adjustment)", "", "", "", "", "", "", "", roundOff]);
+          exportData.push(["", "Round Off (Adjustment)", "", "", "", "", "", "", "", "", roundOff]);
         }
 
         // Product total row
-        exportData.push(["", "Grand Total", "", "", "", "", "", "", "", productGrandTotal]);
+        exportData.push(["", "Grand Total", "", "", "", "", "", "", "", "", productGrandTotal]);
         exportData.push([]); // spacing
         grandTotal += productGrandTotal;
       });
 
       // Grand total row
-      exportData.push(["", "GRAND TOTAL", "", "", "", "", "", "", "", grandTotal]);
+      exportData.push(["", "GRAND TOTAL", "", "", "", "", "", "", "", "", grandTotal]);
 
       const worksheet = XLSX.utils.aoa_to_sheet(exportData);
 
@@ -3954,7 +3968,7 @@ export default function CreateBom() {
         for (let C = range.s.c; C <= range.e.c; ++C) {
           const cell_ref = XLSX.utils.encode_cell({ r: R, c: C });
           if (!worksheet[cell_ref]) continue;
-          if (C === 8 || C === 9) { // Rate and Amount columns
+          if (C === 9 || C === 10) { // Rate and Amount columns
             if (typeof worksheet[cell_ref].v === 'number') {
               worksheet[cell_ref].z = '"₹"#,##0.00';
             }
@@ -4048,47 +4062,67 @@ export default function CreateBom() {
 
         let displayLines: any[] = [];
         if (td.materialLines && td.targetRequiredQty !== undefined) {
+          const targetQtyEngine = td.targetRequiredQty || 1;
           const boqResult = computeBoq(
             td.configBasis || { requiredUnitType: "Sqft", baseRequiredQty: 1, wastagePctDefault: 0 },
             td.materialLines || [],
-            td.targetRequiredQty || 1
+            targetQtyEngine
           );
-          const computedLines = boqResult.computed.map((line: any, idx: number) => ({
-            title: line.name, description: line.name, unit: line.unit, shop_name: line.shop_name,
-            qtyPerSqf: line.perUnitQty, requiredQty: line.scaledQty, roundOff: line.roundOffQty,
-            rate: line.supplyRate + line.installRate, amount: line.lineTotal, image: line.image
-          }));
+          // FIX: Read user-edited values (freeze-and-edit rates, qty edits)
+          const computedLines = boqResult.computed.map((line: any, idx: number) => {
+            const itemKey = `${boqItem.id}-engine-${idx}`;
+            const isFrozen = line.freezeAndEdit || line.freeze_and_edit;
+            const qty = Number(getEditedValue(itemKey, "qty", line.perUnitQty));
+            const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
+            const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
+            const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            const isLumpSumLine = (line.unit || "").toLowerCase() === "ls";
+            const reqQty = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : Number((qty * targetQtyEngine).toFixed(2)));
+            const roundOff = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : (line.applyRounding !== false ? Math.ceil(reqQty) : reqQty));
+            return {
+              title: line.name, description: line.name, unit: line.unit, shop_name: line.shop_name,
+              qtyPerSqf: isLumpSumLine ? 1 : qty, requiredQty: reqQty, roundOff: roundOff,
+              rate: rate, amount: Number((roundOff * rate).toFixed(2)), image: line.image
+            };
+          });
           const manualStep11 = step11Items.filter((i: any) => {
             if (!i?.manual) return false;
-            // Also skip if this item is somehow already represented in materialLines (by ID comparison)
             if (td.materialLines?.some((ml: any) => (ml.id || ml.materialId) === i.id)) return false;
             return true;
           }).map((it: any, s11Idx: number) => {
             const key = `${boqItem.id}-manual-${it._s11Idx ?? s11Idx}`;
-            const qty = Number(getEditedValue(key, "qty", it.qty ?? 0)) || 0;
-            const rate = Number(getEditedValue(key, "rate", (it.supply_rate ?? 0) + (it.install_rate ?? 0)));
+            const qty = Number(getEditedValue(key, "qty", it.qtyPerSqf ?? it.qty ?? 0)) || 0;
+            const sRate = Number(getEditedValue(key, "supply_rate", it.supply_rate ?? 0)) || 0;
+            const iRate = Number(getEditedValue(key, "install_rate", it.install_rate ?? 0)) || 0;
+            const rate = Number(getEditedValue(key, "rate", sRate + iRate)) || (sRate + iRate);
+            const u = getEditedValue(key, "unit", it.unit || "nos");
+            const isLumpSum = u.toLowerCase() === "ls";
+            const displayQty = isLumpSum ? 1 : qty;
             return {
               ...it, manual: true, title: it.title, description: getEditedValue(key, "description", it.description || ""),
-              unit: getEditedValue(key, "unit", it.unit || "nos"), qtyPerSqf: "-", requiredQty: qty, roundOff: "-",
-              rate, amount: qty * rate, image: it.image
+              unit: u, qtyPerSqf: isLumpSum ? 1 : qty, requiredQty: displayQty, roundOff: "-",
+              rate, amount: Number((displayQty * rate).toFixed(2)), image: it.image
             };
           }).filter(Boolean);
           displayLines = [...computedLines, ...manualStep11];
         } else {
           const target = td.targetRequiredQty || 1;
 
-
           displayLines = step11Items.map((it: any, idx: number) => {
             const key = it.itemKey || `${boqItem.id}-${idx}`;
-            const baseQty = Number(getEditedValue(key, "qty", it.qty ?? 0)) || 0;
+            const baseQty = Number(getEditedValue(key, "qty", it.qtyPerSqf ?? it.qty ?? 0)) || 0;
             const u = getEditedValue(key, "unit", it.unit || "nos");
             const isLumpSum = u.toLowerCase() === "ls";
-            const scaledQty = isLumpSum ? baseQty : Number((baseQty * target).toFixed(2));
-            const rate = Number(getEditedValue(key, "rate", (it.supply_rate ?? 0) + (it.install_rate ?? 0)));
+            const isManual = it.manual || !td.materialLines;
+            const scaledQty = isManual ? (isLumpSum ? 1 : baseQty) : (isLumpSum ? 1 : Number((baseQty * target).toFixed(2)));
+            const roundOff = (it.applyRounding !== false && !isManual && !isLumpSum) ? Math.ceil(scaledQty) : scaledQty;
+            const sRate = Number(getEditedValue(key, "supply_rate", it.supply_rate ?? 0)) || 0;
+            const iRate = Number(getEditedValue(key, "install_rate", it.install_rate ?? 0)) || 0;
+            const rate = Number(getEditedValue(key, "rate", sRate + iRate)) || (sRate + iRate);
             return {
               ...it, title: it.title, description: getEditedValue(key, "description", it.description || ""),
-              unit: u, qtyPerSqf: baseQty, requiredQty: scaledQty, roundOff: "-",
-              rate, amount: scaledQty * rate, image: it.image
+              unit: u, qtyPerSqf: isLumpSum ? 1 : baseQty, requiredQty: scaledQty, roundOff: roundOff,
+              rate, amount: Number((roundOff * rate).toFixed(2)), image: it.image
             };
           });
         }
