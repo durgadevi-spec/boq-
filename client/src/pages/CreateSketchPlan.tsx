@@ -265,6 +265,16 @@ const SketchPlanRow = React.memo(({
     }
   });
 
+  const clearItemMaterial = () => {
+    updateItem(idx, "material_id", undefined);
+    updateItem(idx, "item_name", "");
+    updateItem(idx, "rate", 0);
+    toast({
+      title: "Item Cleared",
+      description: "Selected material/product has been removed."
+    });
+  };
+
   return (
     <Reorder.Item
       as="tr"
@@ -617,16 +627,62 @@ const SketchPlanRow = React.memo(({
             setOpenPopoverIdx(null);
           }
         }}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className={cn("w-full justify-start text-left font-normal border-dashed border-slate-300 hover:border-indigo-400 p-1", isLocked && "pointer-events-auto hover:bg-transparent", isCompact ? "h-6 text-[9px]" : "h-8 text-[11px]")} disabled={isLocked}>
-              {item.item_name ? (
-                <span className={cn("truncate", isCompact ? "max-w-[80px]" : "max-w-[120px]")}>{item.item_name}</span>
-              ) : (
-                <span className="text-slate-400 italic font-normal">+ Add Item</span>
-              )}
-              <Search className={cn("ml-auto opacity-50", isCompact ? "h-2 w-2" : "h-3 w-3")} />
-            </Button>
-          </DialogTrigger>
+          <div className="flex items-center gap-1 w-full">
+            <div className="flex-1 min-w-0">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className={cn(
+                          "w-full justify-start text-left font-normal border-dashed border-slate-300 hover:border-indigo-400 p-1.5 flex items-center gap-1", 
+                          isLocked && "pointer-events-auto hover:bg-transparent", 
+                          isCompact ? "min-h-[24px] text-[9px]" : "min-h-[32px] text-[11px]",
+                          item.item_name ? "h-auto" : (isCompact ? "h-6" : "h-8")
+                        )} 
+                        disabled={isLocked}
+                      >
+                        {item.item_name ? (
+                          <span className="line-clamp-2 text-slate-700 font-medium leading-tight whitespace-normal break-words flex-1 pr-1">
+                            {item.item_name}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic font-normal flex-1">+ Add Item</span>
+                        )}
+                        <Search className={cn("ml-auto opacity-50 shrink-0", isCompact ? "h-2.5 w-2.5" : "h-3.5 w-3.5")} />
+                      </Button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  {item.item_name && (
+                    <TooltipContent side="top" className="max-w-[350px] bg-slate-900 text-white py-2 px-3 rounded-md shadow-lg border border-slate-700 z-[100]">
+                      <p className="text-[12px] font-medium leading-relaxed whitespace-normal">{item.item_name}</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            {item.item_name && !isLocked && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "text-slate-400 hover:text-red-500 hover:bg-red-50 border border-slate-200 hover:border-red-200 shrink-0",
+                  isCompact ? "h-5 w-5" : "h-7 w-7"
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  clearItemMaterial();
+                }}
+                title="Clear Item"
+              >
+                <X className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
+              </Button>
+            )}
+          </div>
           <DialogContent hideOverlay className="p-0 sm:max-w-[500px] bg-transparent border-none shadow-none [&>button]:hidden pointer-events-none">
             <Draggable nodeRef={dialogRef} handle=".drag-handle">
               <div ref={dialogRef} className="bg-white border shadow-lg sm:rounded-lg pointer-events-auto flex flex-col w-full relative">
@@ -675,6 +731,45 @@ const SketchPlanRow = React.memo(({
                   </div>
 
                   <CommandList className="max-h-[280px]">
+                    {item.item_name && (
+                      <CommandGroup heading="Currently Selected">
+                        <CommandItem
+                          onSelect={() => setOpenPopoverIdx(null)}
+                          className="bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-950 font-medium cursor-pointer border-l-4 border-indigo-600 p-2"
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-sm text-indigo-900">{item.item_name}</span>
+                                  {item.material_id ? (
+                                    <Badge className="text-[10px] scale-90 bg-indigo-600 hover:bg-indigo-600">
+                                      {searchResults.find((m: any) => m.id === item.material_id)?.type || "Selected"}
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="text-[10px] scale-90 bg-slate-600 hover:bg-slate-600">
+                                      Custom Item
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex gap-2 text-[10px] text-slate-500">
+                                  {item.category && <span>Category: {item.category}</span>}
+                                  {item.unit && <span>Unit: {item.unit}</span>}
+                                </div>
+                              </div>
+                            </div>
+                            {item.rate ? (
+                              <div className="text-right shrink-0 ml-4">
+                                <span className="text-sm font-bold text-indigo-700">₹{item.rate}</span>
+                                <span className="text-[8px] text-slate-400 block uppercase font-bold tracking-tighter">Rate / {item.unit || 'Unit'}</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </CommandItem>
+                      </CommandGroup>
+                    )}
+
                     {searching && <CommandEmpty>Loading...</CommandEmpty>}
                     {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
                     {!searching && searchResults.length > 0 && (
@@ -691,29 +786,37 @@ const SketchPlanRow = React.memo(({
                           })
                           .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
                           .map((m: any) => {
-                            const nameLower = (m.name || "").toLowerCase();
+                            const isSelected = item.material_id === m.id;
                             
                             return (
                               <CommandItem
                                 key={`${m.type}-${m.id}`}
                                 onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
-                                className="cursor-pointer"
+                                className={cn(
+                                  "cursor-pointer transition-colors",
+                                  isSelected && "bg-indigo-50/50 hover:bg-indigo-100/50 text-indigo-950 font-medium"
+                                )}
                               >
                                 <div className="flex items-center justify-between w-full">
-                                  <div className="flex flex-col">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-semibold text-sm">{m.name}</span>
-                                      <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
-                                    </div>
-                                    <div className="flex gap-2 text-[10px] text-slate-500">
-                                      {m.code && <span>Code: {m.code}</span>}
-                                      {m.category && <span>Category: {m.category}</span>}
-                                      {m.unit && <span>Unit: {m.unit}</span>}
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    {isSelected && (
+                                      <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+                                    )}
+                                    <div className="flex flex-col min-w-0 flex-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={cn("font-semibold text-sm", isSelected && "text-indigo-900")}>{m.name}</span>
+                                        <Badge variant={isSelected ? "default" : "outline"} className={cn("text-[10px] scale-90", isSelected && "bg-indigo-600 hover:bg-indigo-600")}>{m.type}</Badge>
+                                      </div>
+                                      <div className="flex gap-2 text-[10px] text-slate-500">
+                                        {m.code && <span>Code: {m.code}</span>}
+                                        {m.category && <span>Category: {m.category}</span>}
+                                        {m.unit && <span>Unit: {m.unit}</span>}
+                                      </div>
                                     </div>
                                   </div>
                                   {m.rate && (
                                     <div className="text-right shrink-0 ml-4">
-                                      <span className="text-sm font-bold text-indigo-600">₹{m.rate}</span>
+                                      <span className={cn("text-sm font-bold text-indigo-600", isSelected && "text-indigo-700")}>₹{m.rate}</span>
                                       <span className="text-[8px] text-slate-400 block uppercase font-bold tracking-tighter">Rate / {m.unit || 'Unit'}</span>
                                     </div>
                                   )}
@@ -730,7 +833,14 @@ const SketchPlanRow = React.memo(({
                   <Input
                     placeholder="Or type a custom name and press Enter..."
                     className="h-10 text-sm"
-                    onChange={(e) => updateItem(idx, "item_name", e.target.value)}
+                    value={item.material_id ? "" : (item.item_name || "")}
+                    onChange={(e) => {
+                      updateItem(idx, "item_name", e.target.value);
+                      if (item.material_id) {
+                        updateItem(idx, "material_id", undefined);
+                        updateItem(idx, "rate", 0);
+                      }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         setOpenPopoverIdx(null);
