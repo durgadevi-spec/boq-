@@ -86,6 +86,7 @@ interface PlanItem {
 }
 
 interface ColumnVisibility {
+  sNo: boolean;
   notes: boolean;
   category: boolean;
   itemProduct: boolean;
@@ -99,6 +100,7 @@ interface ColumnVisibility {
 }
 
 const DEFAULT_COLUMN_VISIBILITY: ColumnVisibility = {
+  sNo: true,
   notes: true,
   category: true,
   itemProduct: true,
@@ -323,23 +325,25 @@ const SketchPlanRow = React.memo(({
           onPointerDown={(e) => dragControls.start(e)}
         />
       </td>
-      <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
-        <Select value={String(idx + 1)} onValueChange={(val) => moveItemToPosition(idx, parseInt(val) - 1)} disabled={isLocked || itemsLength <= 1}>
-          <SelectTrigger className="w-[52px] h-6 text-[10px] p-1 border-slate-200">
-            <div className="flex items-center justify-center gap-1 w-full">
-              <span className="font-bold text-indigo-600">{displayIdx}</span>
-              <span className="text-slate-400 text-[8px] opacity-70">#{idx + 1}</span>
-            </div>
-          </SelectTrigger>
-          <SelectContent className="min-w-[3rem] max-h-40">
-            {Array.from({ length: itemsLength }).map((_, i) => (
-              <SelectItem key={i + 1} value={String(i + 1)} className="text-[10px] px-1">{i + 1}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </td>
+      {columnVisibility.sNo && (
+        <td className={cn("col-sNo px-1", isCompact ? "py-0" : "py-2")}>
+          <Select value={String(idx + 1)} onValueChange={(val) => moveItemToPosition(idx, parseInt(val) - 1)} disabled={isLocked || itemsLength <= 1}>
+            <SelectTrigger className="w-[52px] h-6 text-[10px] p-1 border-slate-200">
+              <div className="flex items-center justify-center gap-1 w-full">
+                <span className="font-bold text-indigo-600">{displayIdx}</span>
+                <span className="text-slate-400 text-[8px] opacity-70">#{idx + 1}</span>
+              </div>
+            </SelectTrigger>
+            <SelectContent className="min-w-[3rem] max-h-40">
+              {Array.from({ length: itemsLength }).map((_, i) => (
+                <SelectItem key={i + 1} value={String(i + 1)} className="text-[10px] px-1">{i + 1}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </td>
+      )}
       {columnVisibility.notes && (
-        <td className={cn("px-1", isCompact ? "py-0 w-[130px] min-w-[130px]" : "py-2 w-[220px] min-w-[220px] max-w-[220px]")}>
+        <td className={cn("col-notes px-1", isCompact ? "py-0" : "py-2")}>
           <Dialog onOpenChange={(open) => {
             if (open) {
               setOpenNotesIdx(idx);
@@ -606,7 +610,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.category && (
-        <td className={cn("px-1", isCompact ? "py-0 w-[80px] min-w-[80px]" : "py-2 w-[100px] min-w-[100px] max-w-[100px]")}>
+        <td className={cn("col-category px-1", isCompact ? "py-0" : "py-2")}>
           <Popover>
             <PopoverTrigger asChild>
               <div className={cn("bg-slate-50 border border-slate-200 rounded px-1.5 flex items-center h-8 cursor-pointer hover:border-indigo-400", isCompact ? "h-6" : "h-8")}>
@@ -648,7 +652,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.itemProduct && (
-        <td className={cn("px-2", isCompact ? "py-0 w-[120px] min-w-[120px] max-w-[120px]" : "py-2 w-[160px] min-w-[160px] max-w-[160px]")}>
+        <td className={cn("col-itemProduct px-2", isCompact ? "py-0" : "py-2")}>
           <Dialog modal={false} open={openPopoverIdx === idx} onOpenChange={(open) => {
             if (open) {
               setOpenPopoverIdx(idx);
@@ -886,7 +890,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.unit && (
-        <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
+        <td className={cn("col-unit px-1", isCompact ? "py-0" : "py-2")}>
           <Select value={item.dimension_unit} onValueChange={(val: any) => updateItem(idx, "dimension_unit", val)} disabled={isLocked}>
             <SelectTrigger className={cn("text-[9px] py-0 px-1 min-w-[50px]", isCompact ? "h-5" : "h-8")}>
               <SelectValue />
@@ -912,7 +916,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.dimensions && (
-        <td className={cn("px-2 align-top border-l w-[110px] min-w-[110px] max-w-[110px]", isCompact ? "py-1" : "py-2")}>
+        <td className={cn("col-dimensions px-2 align-top border-l", isCompact ? "py-1" : "py-2")}>
           <div className="flex flex-col gap-1 w-full h-[calc(100%-4px)] relative justify-center">
             <div className={cn("relative flex items-center justify-center w-full", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")}>
               <Popover>
@@ -992,7 +996,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.qty && (
-        <td className={cn("px-1 align-top w-[80px] min-w-[80px] max-w-[80px]", isCompact ? "py-1" : "py-2")}>
+        <td className={cn("col-qty px-1 align-top", isCompact ? "py-1" : "py-2")}>
           <div className="flex flex-col gap-1 w-full relative h-[calc(100%-4px)]">
             <div className={cn("relative flex items-center justify-center top-1")}>
               <Input value={item.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={cn("bg-slate-50 font-bold text-indigo-700 px-1 w-full max-w-[80px] text-center", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} disabled={isLocked} />
@@ -1001,7 +1005,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.assignee && !isSupplier && (
-        <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
+        <td className={cn("col-assignee px-1", isCompact ? "py-0" : "py-2")}>
           <div className="flex flex-col gap-0.5">
             {item.vendor_name && (
               <span className={cn("truncate font-medium text-amber-600", isCompact ? "text-[8px]" : "text-[10px]")}>
@@ -1027,7 +1031,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.pre && (
-        <td className={cn("px-1 text-center", isCompact ? "py-0" : "py-2")}>
+        <td className={cn("col-pre px-1 text-center", isCompact ? "py-0" : "py-2")}>
           <PhotoColumn
             item={item}
             idx={idx}
@@ -1050,7 +1054,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.post && (
-        <td className={cn("px-1 text-center border-l", isCompact ? "py-0" : "py-2")}>
+        <td className={cn("col-post px-1 text-center border-l", isCompact ? "py-0" : "py-2")}>
           <PhotoColumn
             item={item}
             idx={idx}
@@ -1073,7 +1077,7 @@ const SketchPlanRow = React.memo(({
         </td>
       )}
       {columnVisibility.del && (
-        <td className={cn("px-1 text-center border-l", isCompact ? "py-0" : "py-2")}>
+        <td className={cn("col-del px-1 text-center border-l", isCompact ? "py-0" : "py-2")}>
           <div className="flex items-center justify-center gap-1">
             <Button variant="ghost" size="icon" onClick={() => cloneItem(idx)} className={cn("text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-colors border border-transparent hover:border-indigo-200", isCompact ? "h-5 w-5" : "h-6 w-6")} disabled={isLocked} title="Clone Row">
               <Copy className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
@@ -1568,6 +1572,170 @@ export default function CreateSketchPlan() {
     setColumnVisibility(DEFAULT_COLUMN_VISIBILITY);
     const storageKey = user ? `sketch_plan_columns_${user.id}` : "sketch_plan_columns";
     localStorage.setItem(storageKey, JSON.stringify(DEFAULT_COLUMN_VISIBILITY));
+  };
+
+  // Column Resizing State & Methods
+  const DEFAULT_WIDTHS_NORMAL = React.useMemo(() => ({
+    sNo: 50,
+    notes: 220,
+    category: 100,
+    itemProduct: 160,
+    unit: 60,
+    dimensions: 110,
+    qty: 80,
+    assignee: 100,
+    pre: 70,
+    post: 70,
+    del: 60,
+  }), []);
+
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem("sketch_plan_col_widths");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") {
+          return {
+            sNo: parsed.sNo ?? 50,
+            notes: parsed.notes ?? 220,
+            category: parsed.category ?? 100,
+            itemProduct: parsed.itemProduct ?? 160,
+            unit: parsed.unit ?? 60,
+            dimensions: parsed.dimensions ?? 110,
+            qty: parsed.qty ?? 80,
+            assignee: parsed.assignee ?? 100,
+            pre: parsed.pre ?? 70,
+            post: parsed.post ?? 70,
+            del: parsed.del ?? 60,
+          };
+        }
+      } catch (e) {
+        console.error("Failed to parse stored column widths", e);
+      }
+    }
+    return {
+      sNo: 50,
+      notes: 220,
+      category: 100,
+      itemProduct: 160,
+      unit: 60,
+      dimensions: 110,
+      qty: 80,
+      assignee: 100,
+      pre: 70,
+      post: 70,
+      del: 60,
+    };
+  });
+
+  const getTableWidth = useCallback(() => {
+    let width = 48; // checkbox
+    if (columnVisibility.sNo) width += columnWidths.sNo;
+    if (columnVisibility.notes) width += columnWidths.notes;
+    if (columnVisibility.category) width += columnWidths.category;
+    if (columnVisibility.itemProduct) width += columnWidths.itemProduct;
+    if (columnVisibility.unit) width += columnWidths.unit;
+    if (columnVisibility.dimensions) width += columnWidths.dimensions;
+    if (columnVisibility.qty) width += columnWidths.qty;
+    if (columnVisibility.assignee && !isSupplier) width += columnWidths.assignee;
+    if (columnVisibility.pre) width += columnWidths.pre;
+    if (columnVisibility.post) width += columnWidths.post;
+    if (columnVisibility.del) width += columnWidths.del;
+    return width;
+  }, [columnVisibility, columnWidths, isSupplier]);
+
+  const startResize = useCallback((colKey: string, startEvent: React.MouseEvent) => {
+    startEvent.preventDefault();
+    const startX = startEvent.clientX;
+    const startWidth = columnWidths[colKey] ?? 100;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = Math.max(40, startWidth + deltaX);
+      setColumnWidths((prev) => ({
+        ...prev,
+        [colKey]: newWidth,
+      }));
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      
+      setColumnWidths((prev) => {
+        localStorage.setItem("sketch_plan_col_widths", JSON.stringify(prev));
+        return prev;
+      });
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }, [columnWidths]);
+
+  const autoFitColumn = useCallback((colKey: string) => {
+    const cells = document.querySelectorAll(`.col-${colKey}`);
+    let maxWidth = 60;
+    
+    cells.forEach((cell: any) => {
+      let contentWidth = 0;
+      
+      const input = cell.querySelector('input');
+      const textarea = cell.querySelector('textarea');
+      const select = cell.querySelector('select');
+      
+      if (input) {
+        contentWidth = Math.max(60, (input.value || "").length * 8 + 30);
+      } else if (textarea) {
+        contentWidth = Math.max(100, (textarea.value || "").length * 8 + 30);
+      } else if (select) {
+        contentWidth = 80;
+      } else {
+        contentWidth = cell.scrollWidth;
+        const innerSpan = cell.querySelector('p, span, button');
+        if (innerSpan) {
+          contentWidth = Math.max(contentWidth, innerSpan.scrollWidth);
+        }
+      }
+      
+      if (contentWidth > maxWidth) {
+        maxWidth = contentWidth;
+      }
+    });
+
+    const finalWidth = Math.min(500, maxWidth + 16);
+    setColumnWidths((prev) => {
+      const updated = {
+        ...prev,
+        [colKey]: finalWidth,
+      };
+      localStorage.setItem("sketch_plan_col_widths", JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  const renderResizeHandle = useCallback((colKey: string) => (
+    <div
+      className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize select-none hover:bg-indigo-500/20 active:bg-indigo-500/45 transition-all z-30 flex items-center justify-center group"
+      onMouseDown={(e) => startResize(colKey, e)}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        autoFitColumn(colKey);
+      }}
+    >
+      <div className="w-[1.5px] h-3.5 bg-slate-300 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity" />
+    </div>
+  ), [startResize, autoFitColumn]);
+
+  const resetDefaultLayout = () => {
+    setColumnVisibility(DEFAULT_COLUMN_VISIBILITY);
+    const storageKey = user ? `sketch_plan_columns_${user.id}` : "sketch_plan_columns";
+    localStorage.setItem(storageKey, JSON.stringify(DEFAULT_COLUMN_VISIBILITY));
+    setColumnWidths(DEFAULT_WIDTHS_NORMAL);
+    localStorage.removeItem("sketch_plan_col_widths");
+    toast({
+      title: "Layout Reset",
+      description: "Column visibility and widths have been reset to default."
+    });
   };
 
   // Versioning State
@@ -3719,11 +3887,12 @@ export default function CreateSketchPlan() {
                         <div className="space-y-3">
                           <div className="border-b pb-1.5 flex items-center justify-between">
                             <span className="font-bold text-xs text-slate-700 uppercase tracking-wider">Visible Columns</span>
-                            <span className="text-[10px] text-slate-400 font-medium">({Object.values(columnVisibility).filter(Boolean).length}/10)</span>
+                            <span className="text-[10px] text-slate-400 font-medium">({Object.values(columnVisibility).filter(Boolean).length}/{Object.keys(columnVisibility).length})</span>
                           </div>
                           
                           <div className="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
                             {[
+                              { key: "sNo", label: "S.No (#)" },
                               { key: "notes", label: "Notes/Review" },
                               { key: "category", label: "Category" },
                               { key: "itemProduct", label: "Item/Product" },
@@ -3761,7 +3930,7 @@ export default function CreateSketchPlan() {
                             <Button 
                               variant="ghost" 
                               size="sm" 
-                              onClick={showAllColumns}
+                              onClick={resetDefaultLayout}
                               className="h-7 text-[10px] font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-700 justify-center w-full"
                             >
                               Reset Default Layout
@@ -4014,10 +4183,24 @@ export default function CreateSketchPlan() {
 
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
+                    <table className="border-collapse" style={{ tableLayout: "fixed", width: `${getTableWidth()}px`, minWidth: "100%" }}>
+                      <colgroup>
+                        <col style={{ width: "48px" }} />
+                        <col style={{ width: "60px" }} />
+                        {columnVisibility.notes && <col style={{ width: `${columnWidths.notes}px` }} />}
+                        {columnVisibility.category && <col style={{ width: `${columnWidths.category}px` }} />}
+                        {columnVisibility.itemProduct && <col style={{ width: `${columnWidths.itemProduct}px` }} />}
+                        {columnVisibility.unit && <col style={{ width: `${columnWidths.unit}px` }} />}
+                        {columnVisibility.dimensions && <col style={{ width: `${columnWidths.dimensions}px` }} />}
+                        {columnVisibility.qty && <col style={{ width: `${columnWidths.qty}px` }} />}
+                        {columnVisibility.assignee && !isSupplier && <col style={{ width: `${columnWidths.assignee}px` }} />}
+                        {columnVisibility.pre && <col style={{ width: `${columnWidths.pre}px` }} />}
+                        {columnVisibility.post && <col style={{ width: `${columnWidths.post}px` }} />}
+                        {columnVisibility.del && <col style={{ width: `${columnWidths.del}px` }} />}
+                      </colgroup>
                       <thead>
                         <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b">
-                          <th className={cn("w-12 px-2", isCompact ? "py-1" : "py-3")}>
+                          <th className={cn("px-2", isCompact ? "py-1" : "py-3")}>
                             {!isSupplier && (
                               <Checkbox
                                 checked={selectedItemIds.size === items.length && items.length > 0}
@@ -4025,36 +4208,66 @@ export default function CreateSketchPlan() {
                               />
                             )}
                           </th>
-                          <th className={cn("w-10 px-2 text-left", isCompact ? "py-1" : "py-3")}>#</th>
+                          <th className={cn("px-2 text-left", isCompact ? "py-1" : "py-3")}>#</th>
                           {columnVisibility.notes && (
-                            <th className={cn("w-[200px] min-w-[200px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Notes/Review</th>
+                            <th className={cn("col-notes px-2 text-left relative group", isCompact ? "py-1" : "py-3")}>
+                              Notes/Review
+                              {renderResizeHandle("notes")}
+                            </th>
                           )}
                           {columnVisibility.category && (
-                            <th className={cn("w-[100px] min-w-[100px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Category</th>
+                            <th className={cn("col-category px-2 text-left relative group", isCompact ? "py-1" : "py-3")}>
+                              Category
+                              {renderResizeHandle("category")}
+                            </th>
                           )}
                           {columnVisibility.itemProduct && (
-                            <th className={cn("w-[160px] min-w-[160px] max-w-[160px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Item/Product</th>
+                            <th className={cn("col-itemProduct px-2 text-left relative group", isCompact ? "py-1" : "py-3")}>
+                              Item/Product
+                              {renderResizeHandle("itemProduct")}
+                            </th>
                           )}
                           {columnVisibility.unit && (
-                            <th className={cn("w-[60px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Unit</th>
+                            <th className={cn("col-unit px-2 text-left relative group", isCompact ? "py-1" : "py-3")}>
+                              Unit
+                              {renderResizeHandle("unit")}
+                            </th>
                           )}
                           {columnVisibility.dimensions && (
-                            <th className={cn("w-[110px] min-w-[110px] max-w-[110px] px-2 text-center font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Dimensions</th>
+                            <th className={cn("col-dimensions px-2 text-center font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20 relative group", isCompact ? "py-1" : "py-3")}>
+                              Dimensions
+                              {renderResizeHandle("dimensions")}
+                            </th>
                           )}
                           {columnVisibility.qty && (
-                            <th className={cn("w-[80px] min-w-[80px] max-w-[80px] px-2 text-center bg-indigo-50 font-bold text-indigo-700", isCompact ? "py-1" : "py-3")}>QTY</th>
+                            <th className={cn("col-qty px-2 text-center bg-indigo-50 font-bold text-indigo-700 relative group", isCompact ? "py-1" : "py-3")}>
+                              QTY
+                              {renderResizeHandle("qty")}
+                            </th>
                           )}
                           {columnVisibility.assignee && !isSupplier && (
-                            <th className={cn("w-[100px] px-2 text-left font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Assignee</th>
+                            <th className={cn("col-assignee px-2 text-left font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20 relative group", isCompact ? "py-1" : "py-3")}>
+                              Assignee
+                              {renderResizeHandle("assignee")}
+                            </th>
                           )}
                           {columnVisibility.pre && (
-                            <th className={cn("w-[60px] px-2 text-center border-l bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Pre</th>
+                            <th className={cn("col-pre px-2 text-center border-l bg-amber-50/20 font-bold text-amber-700 relative group", isCompact ? "py-1" : "py-3")}>
+                              Pre
+                              {renderResizeHandle("pre")}
+                            </th>
                           )}
                           {columnVisibility.post && (
-                            <th className={cn("w-[60px] px-2 text-center bg-amber-50/20 font-bold text-amber-700", isCompact ? "py-1" : "py-3")}>Post</th>
+                            <th className={cn("col-post px-2 text-center bg-amber-50/20 font-bold text-amber-700 relative group", isCompact ? "py-1" : "py-3")}>
+                              Post
+                              {renderResizeHandle("post")}
+                            </th>
                           )}
                           {columnVisibility.del && (
-                            <th className={cn("w-10 px-2 text-center", isCompact ? "py-1" : "py-3")}>Del</th>
+                            <th className={cn("col-del px-2 text-center relative group", isCompact ? "py-1" : "py-3")}>
+                              Del
+                              {renderResizeHandle("del")}
+                            </th>
                           )}
                         </tr>
                       </thead>

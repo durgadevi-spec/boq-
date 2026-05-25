@@ -589,6 +589,26 @@ export default function FinalizeBoq() {
   const [showDisabledVersionsDialog, setShowDisabledVersionsDialog] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Dynamic formula popover lock state
+  const [activeFormulaCell, setActiveFormulaCell] = useState<{ itemId: string; colName: string } | null>(null);
+
+  // Auto-close formula popovers when clicking outside
+  useEffect(() => {
+    if (!activeFormulaCell) return;
+    
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.group\\/cell')) {
+        setActiveFormulaCell(null);
+      }
+    };
+    
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [activeFormulaCell]);
+
   // Delete Confirmation Dialog State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmCallback, setDeleteConfirmCallback] = useState<(action: "archive" | "trash") => void>(() => () => { });
@@ -5560,16 +5580,27 @@ export default function FinalizeBoq() {
                                       key={`${col.name}-${idx}`}
                                       className={`border-r px-2 py-1 relative group/cell align-middle text-[11px] min-w-[180px] ${getIsModified(boqItem.id, "columns", col.name) ? "bg-blue-50/40 text-blue-600 border-2 border-blue-100" : "bg-transparent"}`}
                                       title={getIsModified(boqItem.id, "columns", col.name) ? "Modified from Template" : ""}
+                                      onDoubleClick={() => {
+                                        if (!isVersionSubmitted) {
+                                          setActiveFormulaCell({ itemId: boqItem.id, colName: col.name });
+                                        }
+                                      }}
                                     >
                                       <div className="flex flex-col h-full min-h-[45px] justify-between">
-                                        <div className="absolute left-1 top-1 z-20 pointer-events-none group-hover/cell:pointer-events-auto">
-                                          <div className="flex items-center gap-1 opacity-0 group-hover/cell:opacity-100 transition-opacity bg-white/95 p-1 rounded-md shadow-md border border-purple-200">
+                                        <div className={cn("absolute left-1 top-1 z-20 transition-all", activeFormulaCell?.itemId === boqItem.id && activeFormulaCell?.colName === col.name ? "pointer-events-auto opacity-100" : "pointer-events-none group-hover/cell:pointer-events-auto focus-within:pointer-events-auto")}>
+                                          <div className={cn("flex items-center gap-1 transition-opacity bg-white/95 p-1 rounded-md shadow-md border border-purple-200", activeFormulaCell?.itemId === boqItem.id && activeFormulaCell?.colName === col.name ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100 focus-within:opacity-100")}>
                                             <select
                                               className="bg-white border border-purple-300 rounded text-[10px] font-semibold text-purple-700 outline-none h-6 px-1 cursor-pointer"
                                               value={(itemCol as any).multiplierSource || "manual"}
                                               disabled={isVersionSubmitted}
                                               onChange={(e) => {
                                                 handleItemCalculation(boqItem.id, col.name, itemMultiplier, itemOp, e.target.value);
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                  setActiveFormulaCell(null);
+                                                  saveItemLayout(boqItem.id);
+                                                }
                                               }}
                                             >
                                               <option value="manual">Val</option>
@@ -5596,6 +5627,12 @@ export default function FinalizeBoq() {
                                               disabled={isVersionSubmitted}
                                               onChange={(e) => {
                                                 handleItemCalculation(boqItem.id, col.name, itemMultiplier, itemOp, (itemCol as any).multiplierSource || "manual", e.target.value);
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                  setActiveFormulaCell(null);
+                                                  saveItemLayout(boqItem.id);
+                                                }
                                               }}
                                             >
                                               <option value="manual">Fixed Value</option>
@@ -5626,6 +5663,12 @@ export default function FinalizeBoq() {
                                                   const newVal = parseFloat(e.target.value) || 0;
                                                   handleItemCalculation(boqItem.id, col.name, newVal, itemOp, (itemCol as any).multiplierSource || "manual", (itemCol as any).baseSource || "Total Value (₹)");
                                                 }}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === "Enter") {
+                                                    setActiveFormulaCell(null);
+                                                    saveItemLayout(boqItem.id);
+                                                  }
+                                                }}
                                               />
                                             )}
 
@@ -5635,6 +5678,12 @@ export default function FinalizeBoq() {
                                               disabled={isVersionSubmitted}
                                               onChange={(e) => {
                                                 handleItemCalculation(boqItem.id, col.name, itemMultiplier, e.target.value, (itemCol as any).multiplierSource || "manual", (itemCol as any).baseSource || "Total Value (₹)");
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                  setActiveFormulaCell(null);
+                                                  saveItemLayout(boqItem.id);
+                                                }
                                               }}
                                             >
                                               <option value="%">%</option>
