@@ -157,6 +157,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     hsnCode: mat.hsn_code || mat.hsnCode || "",
     sacCode: mat.sac_code || mat.sacCode || "",
     created_at: mat.created_at || mat.submitted_at || null,
+    is_project_pricing: mat.is_project_pricing || false,
   } as Material);
 
   const refreshMaterials = async () => {
@@ -191,6 +192,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
             modelNumber: s.submission.modelnumber || s.submission.modelNumber || "",
             technicalSpecification: s.submission.technicalspecification || s.submission.technicalSpecification || "",
             image: s.submission.image || s.submission.template_image || null,
+            is_project_pricing: s.submission.is_project_pricing,
           },
           submittedBy: s.submission.shop_name || "Supplier",
           submittedAt: s.submission.submitted_at || s.submission.created_at,

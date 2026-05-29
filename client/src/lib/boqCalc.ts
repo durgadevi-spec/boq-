@@ -163,7 +163,8 @@ export function linesFromTableData(tableData: any): MaterialLine[] {
             applyRounding: l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : (l.applyRounding !== undefined ? Boolean(l.applyRounding) : true),
             freezeAndEdit: (l.freeze_and_edit === true || l.freeze_and_edit === "true" || l.freeze_and_edit === 1 || l.freezeAndEdit === true || l.freezeAndEdit === "true" || l.freezeAndEdit === 1),
             description: l.description || l.technicalspecification || l.name,
-            technicalspecification: l.technicalspecification
+            technicalspecification: l.technicalspecification,
+            is_project_pricing: l.is_project_pricing === true
         }));
     }
     // Backward compat: old step11_items

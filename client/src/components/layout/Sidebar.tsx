@@ -144,7 +144,14 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     const isActive = adminTab ? currentTab === adminTab : location === href;
 
     return (
-      <Link href={href}>
+      <Link href={href} onClick={(e) => {
+        if ((window as any).isSketchPlanDirty) {
+          if (!window.confirm("⚠️ WARNING: You have UNSAVED changes! ⚠️\n\nClick 'Cancel' to STAY on this page so you can save your work.\nClick 'OK' to DISCARD your changes and exit.")) {
+            e.preventDefault();
+            return;
+          }
+        }
+      }}>
         <span
           className={cn(
             "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-2 cursor-pointer group relative",
@@ -681,6 +688,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   label="Bulk Upload"
                   condition={!isVoltAmpele && isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager}
                 />
+
               </>
             )}
 

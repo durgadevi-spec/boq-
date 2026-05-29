@@ -595,14 +595,14 @@ export default function FinalizeBoq() {
   // Auto-close formula popovers when clicking outside
   useEffect(() => {
     if (!activeFormulaCell) return;
-    
+
     const handleOutsideClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest('.group\\/cell')) {
         setActiveFormulaCell(null);
       }
     };
-    
+
     document.addEventListener("mousedown", handleOutsideClick);
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
@@ -642,6 +642,7 @@ export default function FinalizeBoq() {
   }, [projects, projectStatusFilter, projectSearchTerm]);
   const [boqSearchTerm, setBoqSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [projectPricingFilter, setProjectPricingFilter] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -679,6 +680,16 @@ export default function FinalizeBoq() {
         if (itemCat !== categoryFilter) return false;
       }
 
+      // Filter by project pricing
+      if (projectPricingFilter) {
+        const materialLines = Array.isArray(td.materialLines) ? td.materialLines : [];
+        const step11Items = Array.isArray(td.step11_items) ? td.step11_items : [];
+        const hasProjectPricing = td.is_project_pricing === true ||
+          materialLines.some((ml: any) => ml.is_project_pricing === true) ||
+          step11Items.some((si: any) => si.is_project_pricing === true);
+        if (!hasProjectPricing) return false;
+      }
+
       return true;
     });
 
@@ -706,7 +717,7 @@ export default function FinalizeBoq() {
   // Reset to page 1 when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [boqSearchTerm, categoryFilter]);
+  }, [boqSearchTerm, categoryFilter, projectPricingFilter]);
 
   const availableCategories = React.useMemo(() => {
     // Read category_order from the BOM version (where Generate BOM saves it)
@@ -1117,7 +1128,7 @@ export default function FinalizeBoq() {
   const startResize = useCallback((colKey: string, mouseDownEvent: React.MouseEvent) => {
     mouseDownEvent.preventDefault();
     const startX = mouseDownEvent.clientX;
-    
+
     // Find current width
     const startWidth = colWidths[colKey] ?? DEFAULT_COL_WIDTHS[colKey] ?? 180;
 
@@ -1196,7 +1207,7 @@ export default function FinalizeBoq() {
   const autoFitColumn = useCallback((colKey: string) => {
     const escapedKey = colKey.replace(/[^a-zA-Z0-9_-]/g, "_");
     let maxW = 60; // Base min width
-    
+
     // Measure cells in DOM
     const cells = document.querySelectorAll(`.col-${escapedKey}`);
     cells.forEach((cell) => {
@@ -1207,7 +1218,7 @@ export default function FinalizeBoq() {
       } else {
         text = cell.textContent || "";
       }
-      
+
       const fontStyle = window.getComputedStyle(cell).font || "12px Inter, sans-serif";
       const measuredW = measureText(text, fontStyle) + 32; // Add padding
       if (measuredW > maxW) {
@@ -4396,6 +4407,16 @@ export default function FinalizeBoq() {
                 </div>
 
                 <div className="flex items-center gap-4">
+                  <div className="flex items-center space-x-2 mr-4">
+                    <Checkbox
+                      id="boq-project-pricing-filter"
+                      checked={projectPricingFilter}
+                      onCheckedChange={(checked: boolean) => setProjectPricingFilter(!!checked)}
+                    />
+                    <label htmlFor="boq-project-pricing-filter" className="text-sm font-semibold cursor-pointer whitespace-nowrap">
+                      Project Pricing Only
+                    </label>
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Per Page:</span>
                     <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
@@ -4809,24 +4830,24 @@ export default function FinalizeBoq() {
                       {/* Excel-style Column Labels */}
                       <tr className="bg-gray-100 border-b border-gray-200 text-[11px] font-semibold text-gray-700">
                         {!hiddenPredefinedCols.sno && (
-                          <th 
-                            style={{ left: 0 }} 
+                          <th
+                            style={{ left: 0 }}
                             className="sticky left-0 border-r border-gray-200 py-1.5 text-center bg-gray-100 z-30 col-grip col-grip-sticky"
                           >
                             A
                           </th>
                         )}
                         {!hiddenPredefinedCols.sno && (
-                          <th 
-                            style={{ left: gripWidth }} 
+                          <th
+                            style={{ left: gripWidth }}
                             className="sticky border-r border-gray-200 py-1.5 text-center text-gray-700 bg-gray-100 z-30 col-sno col-sno-sticky"
                           >
                             B
                           </th>
                         )}
                         {!hiddenPredefinedCols.product && (
-                          <th 
-                            style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }} 
+                          <th
+                            style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }}
                             className="sticky border-r border-gray-200 py-1.5 text-center bg-gray-100 z-30 col-product col-product-sticky"
                           >
                             C
@@ -4863,8 +4884,8 @@ export default function FinalizeBoq() {
                         className="bg-gray-200 text-slate-900 border-b border-gray-300 text-[12px] font-semibold uppercase tracking-wider shadow-sm"
                       >
                         {!hiddenPredefinedCols.sno && (
-                          <th 
-                            style={{ left: 0 }} 
+                          <th
+                            style={{ left: 0 }}
                             className="sticky left-0 border-r border-gray-300 px-2 py-2.5 text-center bg-gray-200 z-30 col-grip col-grip-sticky group relative"
                           >
                             <GripVertical size={18} className="mx-auto text-gray-500" />
@@ -4876,8 +4897,8 @@ export default function FinalizeBoq() {
                           </th>
                         )}
                         {!hiddenPredefinedCols.sno && (
-                          <th 
-                            style={{ left: gripWidth }} 
+                          <th
+                            style={{ left: gripWidth }}
                             className="sticky border-r border-gray-300 px-1 py-2.5 text-left text-[11px] group relative bg-gray-200 z-30 col-sno col-sno-sticky"
                           >
                             <div className="flex flex-col items-center gap-1.5 justify-center">
@@ -4920,8 +4941,8 @@ export default function FinalizeBoq() {
                           </th>
                         )}
                         {!hiddenPredefinedCols.product && (
-                          <th 
-                            style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }} 
+                          <th
+                            style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }}
                             className="sticky border-r border-gray-300 px-3 py-2.5 text-left text-[11px] group relative bg-gray-200 z-30 col-product col-product-sticky"
                           >
                             <div className="flex items-center justify-between gap-1">
@@ -5247,6 +5268,11 @@ export default function FinalizeBoq() {
                           if (!category && tableData.product_info?.category) category = tableData.product_info.category;
                         }
 
+                        // Check if product or any of its materials have project pricing
+                        const hasProjectPricing = tableData.is_project_pricing === true ||
+                          (tableData.materialLines || []).some((ml: any) => ml.is_project_pricing === true) ||
+                          (tableData.step11_items || []).some((si: any) => si.is_project_pricing === true);
+
                         const isSelected = selectedProductIds.has(boqItem.id);
 
                         let total = 0;
@@ -5286,8 +5312,8 @@ export default function FinalizeBoq() {
                             className={`hover:bg-blue-50/40 cursor-default transition-colors border-b border-gray-100 group ${isSelected ? "bg-blue-50/60" : "bg-white"}`}
                           >
                             {!hiddenPredefinedCols.sno && (
-                              <td 
-                                style={{ left: 0, cursor: "grab" }} 
+                              <td
+                                style={{ left: 0, cursor: "grab" }}
                                 className={`sticky left-0 border-r px-2 py-1.5 text-center align-middle z-20 transition-colors ${isSelected ? "bg-blue-50" : "bg-gray-50"} col-grip col-grip-sticky`}
                               >
                                 <div className="flex flex-col items-center gap-1">
@@ -5302,8 +5328,8 @@ export default function FinalizeBoq() {
                               </td>
                             )}
                             {!hiddenPredefinedCols.sno && (
-                              <td 
-                                style={{ left: gripWidth }} 
+                              <td
+                                style={{ left: gripWidth }}
                                 className={`sticky border-r px-2 py-1.5 text-center align-middle z-20 transition-colors ${isSelected ? "bg-blue-50" : "bg-white group-hover:bg-blue-50"} col-sno col-sno-sticky`}
                               >
                                 <div className="flex flex-col items-center gap-2">
@@ -5324,8 +5350,8 @@ export default function FinalizeBoq() {
                               </td>
                             )}
                             {!hiddenPredefinedCols.product && (
-                              <td 
-                                style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }} 
+                              <td
+                                style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }}
                                 className={`sticky border-r px-1.5 py-1 font-medium text-gray-800 text-[10px] align-middle z-20 transition-colors ${isSelected ? "bg-blue-50" : "bg-white group-hover:bg-blue-50"} col-product col-product-sticky`}
                               >
                                 <div className="flex items-center gap-2">
@@ -5344,7 +5370,12 @@ export default function FinalizeBoq() {
                                     ) : null;
                                   })()}
                                   <div className="flex flex-col gap-0.5">
-                                    <div className="font-bold leading-tight line-clamp-2">{productName}</div>
+                                    <div className="font-bold leading-tight line-clamp-2 flex flex-wrap items-center gap-1">
+                                      <span>{productName}</span>
+                                      {hasProjectPricing && (
+                                        <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[8px] px-1 py-0 h-3 uppercase tracking-wider shrink-0">PP</Badge>
+                                      )}
+                                    </div>
                                     {category && <div className="text-[8px] text-blue-500 font-extrabold uppercase tracking-tighter">{category}</div>}
                                   </div>
                                 </div>
@@ -5496,7 +5527,7 @@ export default function FinalizeBoq() {
                                   const rawVal = overrideInputVal !== 0
                                     ? (overrideType === "percentage" ? (systemTotal + markupTotal) : markupTotal)
                                     : systemTotal;
-                                  
+
                                   return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
                                 })()}
                               </td>
@@ -5827,22 +5858,22 @@ export default function FinalizeBoq() {
                       <tfoot>
                         <tr className="bg-gray-50 border-t-2 border-gray-300 font-bold group">
                           {!hiddenPredefinedCols.sno && (
-                            <td 
-                              style={{ left: 0 }} 
+                            <td
+                              style={{ left: 0 }}
                               className="sticky border-r bg-gray-100 z-20 col-grip col-grip-sticky"
                             />
                           )}
                           {!hiddenPredefinedCols.sno && (
-                            <td 
-                              style={{ left: gripWidth }} 
+                            <td
+                              style={{ left: gripWidth }}
                               className="sticky border-r text-center text-xs text-gray-400 bg-gray-100 z-20 col-sno col-sno-sticky"
                             >
                               ∑
                             </td>
                           )}
                           {!hiddenPredefinedCols.product && (
-                            <td 
-                              style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }} 
+                            <td
+                              style={{ left: hiddenPredefinedCols.sno ? 0 : gripWidth + snoWidth }}
                               className="sticky border-r px-2 py-1.5 font-bold text-gray-800 relative text-[11px] bg-gray-50 z-20 col-product col-product-sticky"
                             >
                               COLUMN TOTALS

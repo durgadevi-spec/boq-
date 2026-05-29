@@ -1094,7 +1094,15 @@ const SketchPlanRow = React.memo(({
 
 export default function CreateSketchPlan() {
   const { id: paramId } = useParams<{ id?: string }>();
-  const [, setLocation] = useLocation();
+  const [, setWouterLocation] = useLocation();
+  const setLocation = useCallback((path: string) => {
+    if ((window as any).isSketchPlanDirty) {
+      if (!window.confirm("⚠️ WARNING: You have UNSAVED changes! ⚠️\n\nClick 'Cancel' to STAY on this page so you can save your work.\nClick 'OK' to DISCARD your changes and exit.")) {
+        return;
+      }
+    }
+    setWouterLocation(path);
+  }, [setWouterLocation]);
   const { toast } = useToast();
   const [currentId, setCurrentId] = useState<string | null>(paramId || null);
   const isEditing = !!currentId;
@@ -1529,6 +1537,51 @@ export default function CreateSketchPlan() {
   const lastSavedRef = useRef<string>("");
   const isSavingRef = useRef<boolean>(false);
   const [initialLoading, setInitialLoading] = useState(!!paramId);
+
+  // Check dirty state
+  useEffect(() => {
+    let lastSaved: any = {};
+    try { lastSaved = JSON.parse(lastSavedRef.current || "{}"); } catch(e) {}
+
+    let isDirty = false;
+    
+    if (name !== (lastSaved.name || "")) isDirty = true;
+    else if (locationStr !== (lastSaved.location || "")) isDirty = true;
+    else if (planDate !== (lastSaved.plan_date || "")) isDirty = true;
+    else if ((projectId === "none" ? null : projectId) !== lastSaved.project_id) isDirty = true;
+    else if (deletedItemIds.length > 0 || deletedImageIds.length > 0 || deletedAttachmentIds.length > 0) isDirty = true;
+    else if (items.length !== (lastSaved.items || []).length) isDirty = true;
+    else if (planImages.length !== (lastSaved.images || []).length) isDirty = true;
+    else if (attachments.length !== (lastSaved.attachments || []).length) isDirty = true;
+    else {
+      for (let i = 0; i < items.length; i++) {
+         const currentClean = { ...items[i], images: [] };
+         const originalClean = { ...(lastSaved.items || [])[i], images: [] };
+         if (JSON.stringify(currentClean) !== JSON.stringify(originalClean)) {
+           isDirty = true;
+           break;
+         }
+      }
+    }
+
+    (window as any).isSketchPlanDirty = isDirty;
+  }, [name, locationStr, planDate, projectId, deletedItemIds, deletedImageIds, deletedAttachmentIds, items, planImages, attachments]);
+
+  // Tab close warning
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if ((window as any).isSketchPlanDirty) {
+        e.preventDefault();
+        e.returnValue = "You have unsaved changes. Leave without saving?";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      (window as any).isSketchPlanDirty = false;
+    };
+  }, []);
 
   // Lock & Approval State
   const [isLocked, setIsLocked] = useState(false);

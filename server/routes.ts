@@ -2319,14 +2319,14 @@ export async function registerRoutes(
         // Query materials table
         const materialsRes = hasQuery
           ? await query(`
-              SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type 
+              SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, m.is_project_pricing, 'Material' as type 
               FROM materials m 
               LEFT JOIN material_templates t ON m.template_id = t.id 
               WHERE (m.name ILIKE $1 OR REPLACE(m.name, ' ', '') ILIKE $2
                  OR COALESCE(m.code,'') ILIKE $1 OR COALESCE(m.category,'') ILIKE $1)
                  AND m.approved IS TRUE
               ORDER BY m.name ASC LIMIT 100`, [searchPattern, compactPattern])
-          : await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.approved IS TRUE ORDER BY m.name ASC LIMIT 100`);
+          : await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, m.is_project_pricing, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.approved IS TRUE ORDER BY m.name ASC LIMIT 100`);
         materialsRows = materialsRes.rows || [];
 
         // Query templates table
@@ -2560,8 +2560,8 @@ export async function registerRoutes(
         }
 
         const result = await query(
-          `INSERT INTO materials (id, template_id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, dimensions, finishtype, metaltype, image, attributes, master_material_id, hsn_code, sac_code, approved, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22, now()) RETURNING *`,
+          `INSERT INTO materials (id, template_id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, dimensions, finishtype, metaltype, image, attributes, master_material_id, hsn_code, sac_code, approved, is_project_pricing, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23, now()) RETURNING *`,
           [
             id,
             template_id,
@@ -2585,6 +2585,7 @@ export async function registerRoutes(
             hsnCode,
             sacCode,
             true, // Default to true for admin-created materials
+            body.isProjectPricing === true || body.is_project_pricing === true,
           ],
         );
 
@@ -2829,7 +2830,9 @@ export async function registerRoutes(
         "materialType",
         "image",
         "template_id",
-        "templateId"
+        "templateId",
+        "is_project_pricing",
+        "isProjectPricing"
       ]) {
         if (body[k] !== undefined) {
           let val = body[k];
@@ -2842,6 +2845,7 @@ export async function registerRoutes(
           if (k === "brandName") dbFieldName = "brandname";
           if (k === "modelNumber") dbFieldName = "modelnumber";
           if (k === "finishType") dbFieldName = "finishtype";
+          if (k === "isProjectPricing") dbFieldName = "is_project_pricing";
 
           if (dbFieldName === "shop_id" && val === "") val = null;
           if (dbFieldName === "rate") val = parseSafeNumeric(val);
@@ -4630,8 +4634,8 @@ export async function registerRoutes(
 
         const id = randomUUID();
         const result = await query(
-          `INSERT INTO material_submissions (id, template_id, shop_id, rate, unit, brandname, modelnumber, subcategory, category, product, technicalspecification, dimensions, finishtype, metaltype, image, hsn_code, sac_code, submitted_by, submitted_at, approved)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NULL)
+          `INSERT INTO material_submissions (id, template_id, shop_id, rate, unit, brandname, modelnumber, subcategory, category, product, technicalspecification, dimensions, finishtype, metaltype, image, hsn_code, sac_code, submitted_by, submitted_at, approved, is_project_pricing)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NULL, $19)
            RETURNING *`,
           [
             id,
@@ -4652,6 +4656,7 @@ export async function registerRoutes(
             hsn_code,
             sac_code,
             (req as any).user?.id,
+            !!((req.body as any).is_project_pricing || (req.body as any).isProjectPricing)
           ],
         );
 
@@ -4810,8 +4815,8 @@ export async function registerRoutes(
 
         const materialId = randomUUID();
         await query(
-          `INSERT INTO materials (id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, template_id, image, hsn_code, sac_code, approved)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, true)`,
+          `INSERT INTO materials (id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, template_id, image, hsn_code, sac_code, approved, is_project_pricing)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, true, $17)`,
           [
             materialId,
             template.name,
@@ -4829,6 +4834,7 @@ export async function registerRoutes(
             submission.image || template.image || null,
             submission.hsn_code || submission.hsnCode || template.hsn_code || null,
             submission.sac_code || submission.sacCode || template.sac_code || null,
+            submission.is_project_pricing === true,
           ],
         );
 
@@ -8408,8 +8414,8 @@ export async function registerRoutes(
             for (const item of items) {
               await query(
                 `INSERT INTO product_step3_config_items
-                 (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                 (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name, is_project_pricing)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
                 [
                   step3ConfigId,
                   item.materialId,
@@ -8425,7 +8431,8 @@ export async function registerRoutes(
                   item.wastagePct,
                   item.applyWastage !== undefined ? item.applyWastage : true,
                   item.freezeAndEdit === true || item.freeze_and_edit === true,
-                  item.shopName || item.shop_name || null
+                  item.shopName || item.shop_name || null,
+                  item.isProjectPricing === true || item.is_project_pricing === true
                 ],
               );
             }
@@ -8829,15 +8836,16 @@ export async function registerRoutes(
             for (const item of items) {
               await query(
                 `INSERT INTO product_approval_items
-                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name, is_project_pricing)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
                 [
                   approvalId, item.materialId, item.materialName, item.unit, item.qty, item.rate,
                   item.supplyRate, item.installRate, item.location, item.amount,
                   item.baseQty, item.wastagePct,
                   item.applyWastage !== undefined ? item.applyWastage : true,
                   item.freezeAndEdit === true || item.freeze_and_edit === true,
-                  item.shopName || item.shop_name || null
+                  item.shopName || item.shop_name || null,
+                  item.isProjectPricing === true || item.is_project_pricing === true
                 ]
               );
             }
@@ -8965,8 +8973,8 @@ export async function registerRoutes(
             for (const item of items) {
               await query(
                 `INSERT INTO product_approval_items
-                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name, is_project_pricing)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
                 [
                   id, item.material_id || item.materialId, item.material_name || item.materialName,
                   item.unit, item.qty, item.rate, item.supply_rate || item.supplyRate,
@@ -8974,7 +8982,8 @@ export async function registerRoutes(
                   item.base_qty || item.baseQty, item.wastage_pct || item.wastagePct,
                   item.apply_wastage !== undefined ? item.apply_wastage : (item.applyWastage !== undefined ? item.applyWastage : true),
                   item.freeze_and_edit === true || item.freezeAndEdit === true,
-                  item.shop_name || item.shopName || null
+                  item.shop_name || item.shopName || null,
+                  item.is_project_pricing === true || item.isProjectPricing === true
                 ]
               );
             }
@@ -9048,13 +9057,14 @@ export async function registerRoutes(
           for (const item of appItems) {
             await query(
               `INSERT INTO product_step3_config_items
-               (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+               (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name, is_project_pricing)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
               [
                 step3Id, item.material_id, item.material_name, item.unit,
                 item.qty, item.rate, item.supply_rate, item.install_rate,
                 item.location, item.amount, item.base_qty, item.wastage_pct,
-                item.apply_wastage, item.freeze_and_edit === true || item.freezeAndEdit === true, item.shop_name
+                item.apply_wastage, item.freeze_and_edit === true || item.freezeAndEdit === true, item.shop_name,
+                item.is_project_pricing === true || item.isProjectPricing === true
               ]
             );
           }
@@ -9092,14 +9102,15 @@ export async function registerRoutes(
 
           for (const item of appItems) {
             await query(
-              `INSERT INTO step11_product_items (step11_product_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, freeze_and_edit, apply_wastage, shop_name)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+              `INSERT INTO step11_product_items (step11_product_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, freeze_and_edit, apply_wastage, shop_name, is_project_pricing)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
               [
                 step11Id, item.material_id, item.material_name, item.unit,
                 item.qty, item.rate, item.supply_rate, item.install_rate,
                 item.location, item.amount,
                 item.freeze_and_edit === true || item.freezeAndEdit === true,
-                item.apply_wastage, item.shop_name
+                item.apply_wastage, item.shop_name,
+                item.is_project_pricing === true || item.isProjectPricing === true
               ]
             );
           }

@@ -62,6 +62,7 @@ import {
   Copy,
   X,
   Check,
+  ArrowLeft,
   Image as ImageIcon,
   PackageOpen,
   Send,
@@ -1314,7 +1315,7 @@ export default function AdminDashboard() {
         } else {
           // log server error body
           let errorText = "Unknown error";
-          try { errorText = await res.text(); } catch {}
+          try { errorText = await res.text(); } catch { }
           console.warn('[handleUpdateMaterial] server responded non-ok', res.status, errorText);
           toast({ title: "Update Failed", description: `Server returned ${res.status}: ${errorText}`, variant: "destructive" });
         }
@@ -1949,7 +1950,16 @@ export default function AdminDashboard() {
                   <div className="text-3xl font-bold">{materials.length}</div>
                 </CardContent>
               </Card>
-
+              <Card onClick={() => setActiveTab("project-pricing-materials")} className="cursor-pointer hover:border-amber-300 transition-colors">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium text-amber-600">
+                    Project Pricing Materials
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-amber-600">{materials.filter((m: any) => m.is_project_pricing).length}</div>
+                </CardContent>
+              </Card>
             </div>
 
             {(isAdminOrSoftwareTeam || user?.role === "purchase_team" || user?.role === "pre_sales") && (
@@ -2179,7 +2189,7 @@ export default function AdminDashboard() {
                   {showMaterialsList && (
                     <CardContent className="p-0 animate-in fade-in slide-in-from-top-2 duration-300">
                       <AllMaterialsSplitView
-                        materials={filteredMaterials}
+                        materials={filteredMaterials.filter((m: any) => !m.is_project_pricing)}
                         localShops={localShops}
                         categories={categories}
                         getSubCategoriesForCategory={getSubCategoriesForCategory}
@@ -4089,8 +4099,13 @@ export default function AdminDashboard() {
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <h3 className="text-lg font-bold">
+                                <h3 className="text-lg font-bold flex items-center gap-2 flex-wrap">
                                   {request.material.name}
+                                  {request.material.is_project_pricing && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                                      ★ Project Pricing Material
+                                    </span>
+                                  )}
                                 </h3>
                                 <p className="text-sm text-muted-foreground">
                                   Submitted by: {request.submittedBy} at{" "}
@@ -4234,6 +4249,57 @@ export default function AdminDashboard() {
                       </CardContent>
                     </Card>
                   )}
+              </Card>
+            </TabsContent>
+          )}
+
+          {/* === PROJECT PRICING MATERIALS TAB === */}
+          {isAdminOrSoftwareTeam && (
+            <TabsContent value="project-pricing-materials" className="space-y-4 mt-4">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => setActiveTab("overview")} className="mr-2 h-8 w-8 hover:bg-slate-100">
+                          <ArrowLeft className="h-4 w-4" />
+                        </Button>
+                        Project Pricing Materials
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                          ★ Project Pricing
+                        </span>
+                      </CardTitle>
+                      <CardDescription className="ml-12">
+                        Materials marked as Project Pricing — approved and available for project-based pricing
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <AllMaterialsSplitView
+                    materials={filteredMaterials.filter((m: any) => m.is_project_pricing === true)}
+                    localShops={localShops}
+                    categories={categories}
+                    getSubCategoriesForCategory={getSubCategoriesForCategory}
+                    products={products}
+                    UNIT_OPTIONS={UNIT_OPTIONS}
+                    materialSearch={materialSearch}
+                    setMaterialSearch={setMaterialSearch}
+                    materialCategoryFilter={materialCategoryFilter}
+                    setMaterialCategoryFilter={setMaterialCategoryFilter}
+                    materialSubcategoryFilter={materialSubcategoryFilter}
+                    setMaterialSubcategoryFilter={setMaterialSubcategoryFilter}
+                    editingMaterialId={editingMaterialId}
+                    setEditingMaterialId={setEditingMaterialId}
+                    newMaterial={newMaterial}
+                    setNewMaterial={setNewMaterial}
+                    handleUpdateMaterial={handleUpdateMaterial}
+                    onToggleDisable={(mat: any) => setLocalMaterials((prev: any[]) => prev.map((m: any) => m.id === mat.id ? { ...m, disabled: !m.disabled } : m))}
+                    onDelete={(mat: any) => setGenericDelete({ isOpen: true, id: mat.id, name: mat.name, type: 'material' })}
+                    canEditDelete={canEditDelete}
+                    userRole={user?.role || ""}
+                  />
+                </CardContent>
               </Card>
             </TabsContent>
           )}

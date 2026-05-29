@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useData } from "@/lib/store";
 import {
@@ -99,6 +101,7 @@ export default function ManageMaterials() {
     dimensions: "",
     finishtype: "",
     materialtype: "",
+    isProjectPricing: false,
   });
 
   useEffect(() => {
@@ -259,6 +262,7 @@ export default function ManageMaterials() {
       dimensions: (template as any).dimensions || (template as any).Dimensions || "",
       finishtype: (template as any).finishtype || (template as any).finishType || "",
       materialtype: (template as any).metaltype || (template as any).metalType || (template as any).materialtype || (template as any).materialType || "",
+      isProjectPricing: false,
     });
 
     if (rawSubcategory) {
@@ -531,6 +535,7 @@ export default function ManageMaterials() {
         dimensions: "",
         finishtype: "",
         materialtype: "",
+        isProjectPricing: false,
       });
     } catch {
       toast({
@@ -615,6 +620,7 @@ export default function ManageMaterials() {
       dimensions: entry.dimensions || "",
       finishtype: entry.finishtype || "",
       materialtype: entry.materialtype || entry.metaltype || "",
+      isProjectPricing: entry.isProjectPricing === true || (entry as any).is_project_pricing === true,
     });
 
     // Load subcategories if category exists
@@ -668,6 +674,7 @@ export default function ManageMaterials() {
       dimensions: "",
       finishtype: "",
       materialtype: "",
+      isProjectPricing: false,
     });
     setEditingEntryIndex(null);
 
@@ -692,6 +699,7 @@ export default function ManageMaterials() {
       dimensions: "",
       finishtype: "",
       materialtype: "",
+      isProjectPricing: false,
     });
   };
 
@@ -942,6 +950,19 @@ export default function ManageMaterials() {
                     </div>
                   </div>
 
+                  {/* Project Pricing Checkbox */}
+                  <div className="flex items-center space-x-3 p-3 rounded-lg border border-amber-200 bg-amber-50/50">
+                    <Checkbox
+                      id="project-pricing-checkbox"
+                      checked={formData.isProjectPricing}
+                      onCheckedChange={(checked: boolean) => setFormData({ ...formData, isProjectPricing: !!checked })}
+                    />
+                    <div className="flex flex-col">
+                      <Label htmlFor="project-pricing-checkbox" className="text-sm font-semibold cursor-pointer">Project Pricing Material</Label>
+                      <span className="text-xs text-muted-foreground">Enable this if the material uses project-specific pricing</span>
+                    </div>
+                  </div>
+
                   {entriesList.length > 0 && (
                     <div className="mt-6 border rounded-lg overflow-hidden">
                       <div className="bg-slate-100 px-4 py-2 text-sm font-semibold flex justify-between items-center">
@@ -952,7 +973,10 @@ export default function ManageMaterials() {
                         {entriesList.map((entry, idx) => (
                           <div key={idx} className="flex items-center justify-between px-4 py-3 bg-white">
                             <div className="text-xs flex-1">
-                              <div className="font-bold text-slate-700">Rate: {entry.rate} / {entry.unit}</div>
+                              <div className="font-bold text-slate-700 flex items-center gap-2">
+                                Rate: {entry.rate} / {entry.unit}
+                                {entry.isProjectPricing && <Badge className="bg-amber-500 text-white text-[9px] px-1.5 py-0 h-4">Project Pricing</Badge>}
+                              </div>
                               <div className="text-slate-500">
                                 {entry.brandname || 'No Brand'} • {entry.category}
                                 {entry.subcategory && ` • ${entry.subcategory}`}
@@ -1022,6 +1046,7 @@ export default function ManageMaterials() {
                         dimensions: "",
                         finishtype: "",
                         materialtype: "",
+                        isProjectPricing: false,
                       });
                     }}>Cancel</Button>
                   </div>

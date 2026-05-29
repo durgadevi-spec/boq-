@@ -380,7 +380,8 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
         _materialIdx: idx, itemKey,
         freezeAndEdit: line.freezeAndEdit,
         freeze_and_edit: line.freeze_and_edit,
-        category: line.category
+        category: line.category,
+        is_project_pricing: line.is_project_pricing
       };
     });
     const manualStep11 = step11Items.map((it: any, s11Idx: number) => {
@@ -1033,6 +1034,11 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
                   {item.category}
                 </Badge>
               )}
+              {item.is_project_pricing === true && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">
+                  ★ Project Pricing
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center justify-between gap-1 mt-1">
@@ -1655,7 +1661,8 @@ function ApprovalPreviewDialog({
                     requiredQty: line.scaledQty,
                     roundOff: line.roundOffQty,
                     rateSqft: line.supplyRate + line.installRate,
-                    amount: line.lineTotal
+                    amount: line.lineTotal,
+                    is_project_pricing: line.is_project_pricing
                   }));
                   const manualAdditions = step11Items.filter((i: any) => i && i.manual).map((it: any) => ({
                     ...it,
@@ -1774,6 +1781,7 @@ export default function CreateBom() {
   const [productSearch, setProductSearch] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("all");
   const [itemCategoryFilter, setItemCategoryFilter] = useState("all");
+  const [projectPricingFilter, setProjectPricingFilter] = useState(false);
   const [isCompactView, setIsCompactView] = useState(false);
   const [analysisProduct, setAnalysisProduct] = useState<string | null>(null);
   const [cardDragOverIdx, setCardDragOverIdx] = useState<number | null>(null);
@@ -2292,7 +2300,8 @@ export default function CreateBom() {
                 freezeAndEdit: it.freezeAndEdit || it.freeze_and_edit,
                 freeze_and_edit: it.freezeAndEdit || it.freeze_and_edit,
                 applyWastage: it.apply_wastage !== false,
-                category: area
+                category: area,
+                is_project_pricing: it.is_project_pricing === true
               };
             });
 
@@ -3512,7 +3521,8 @@ export default function CreateBom() {
             installRate: Number(item.install_rate ?? 0),
             shop_name: item.shop_name,
             category: item.category || "General",
-            freeze_and_edit: (item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1 || item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1)
+            freeze_and_edit: (item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1 || item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1),
+            is_project_pricing: item.is_project_pricing === true
           }));
         }
       }
@@ -4957,6 +4967,19 @@ export default function CreateBom() {
                               Compact View
                             </Button>
                             <div className="flex items-center gap-2">
+                              <div className="flex items-center space-x-2 mr-2 bg-amber-50 px-3 py-1.5 rounded-md border border-amber-200">
+                                <Checkbox
+                                  id="project-pricing-filter-bom"
+                                  checked={projectPricingFilter}
+                                  onCheckedChange={(c) => { setProjectPricingFilter(c as boolean); setCurrentPage(1); }}
+                                />
+                                <Label
+                                  htmlFor="project-pricing-filter-bom"
+                                  className="text-xs font-bold text-amber-900 cursor-pointer flex items-center gap-1"
+                                >
+                                  Project Pricing Only
+                                </Label>
+                              </div>
                               <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
                                 <SelectTrigger className="h-9 w-[160px] text-xs border-slate-200">
                                   <SelectValue placeholder="Item Category" />
@@ -5081,7 +5104,16 @@ export default function CreateBom() {
                                 hasMatchingItem = materialLines.some((ml: any) => (ml.category || "General") === itemCategoryFilter) ||
                                   step11Items.some((si: any) => (si.category || "General") === itemCategoryFilter);
                               }
-                              return matchesSearch && matchesProductCat && hasMatchingItem;
+                              let hasProjectPricing = true;
+                              if (projectPricingFilter) {
+                                const materialLines = td.materialLines || [];
+                                const step11Items = td.step11_items || [];
+                                hasProjectPricing = td.is_project_pricing === true || 
+                                  materialLines.some((ml: any) => ml.is_project_pricing === true) ||
+                                  step11Items.some((si: any) => si.is_project_pricing === true);
+                              }
+
+                              return matchesSearch && matchesProductCat && hasMatchingItem && hasProjectPricing;
                             });
 
                             const effectivePageSize = isSinglePage ? 1000 : pageSize;

@@ -27,7 +27,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { DeleteConfirmationDialog } from "@/components/ui/DeleteConfirmationDialog";
 
 type Product = { id: string; name: string; subcategory: string; created_at: string; created_by?: string; image?: string; has_price_updates?: boolean; is_approved?: boolean };
-type Material = { id: string; name: string; unit: string; rate: number; category: string; subcategory: string; description?: string; shop_name?: string; shop_id?: string; shopId?: string; code?: string; hsn_code?: string; sac_code?: string; technicalspecification?: string; technicalSpecification?: string; created_at?: string; brandName?: string; brand_name?: string; modelNumber?: string; model_number?: string };
+type Material = { id: string; name: string; unit: string; rate: number; category: string; subcategory: string; description?: string; shop_name?: string; shop_id?: string; shopId?: string; code?: string; hsn_code?: string; sac_code?: string; technicalspecification?: string; technicalSpecification?: string; created_at?: string; brandName?: string; brand_name?: string; modelNumber?: string; model_number?: string; is_project_pricing?: boolean };
 type SelectedMaterial = Material & { qty: number; baseQty: number; wastagePct?: number; amount: number; rate: number; supplyRate: number; installRate: number; location: string; applyWastage: boolean; applyRounding: boolean; freezeAndEdit?: boolean };
 
 const ALL = "__ALL__";
@@ -77,6 +77,7 @@ export default function ManageProduct() {
     const [isLoadingConfigs, setIsLoadingConfigs] = useState(false);
     const [productSearch, setProductSearch] = useState("");
     const [materialSearch, setMaterialSearch] = useState("");
+    const [projectPricingFilter, setProjectPricingFilter] = useState(false);
     const [requiredUnitType, setRequiredUnitType] = useState<UnitType>("Sqft");
     const [baseRequiredQty, setBaseRequiredQty] = useState(100);
     const [wastagePctDefault, setWastagePctDefault] = useState(5);
@@ -330,7 +331,14 @@ export default function ManageProduct() {
             if (!field) return false;
             return field === val || field.split(",").map(s => s.trim().toLowerCase()).includes(val.trim().toLowerCase());
         };
-        return inc(m.category, selectedCategory) && inc(m.subcategory, selectedSubcategory);
+        const categoryMatch = inc(m.category, selectedCategory) && inc(m.subcategory, selectedSubcategory);
+        if (!categoryMatch) return false;
+        
+        if (projectPricingFilter) {
+            return m.is_project_pricing === true;
+        }
+        
+        return true;
     });
 
     const nextStep = () => {
@@ -351,7 +359,8 @@ export default function ManageProduct() {
     const buildPayloadItems = () => boqResults.computed.map(m => ({
         materialId: m.id, materialName: m.name, unit: m.unit, qty: m.roundOffQty, rate: m.rate,
         supplyRate: m.supplyRate, installRate: m.installRate, location: m.location, amount: m.lineTotal,
-        baseQty: m.baseQty, wastagePct: m.wastagePct ?? null, applyWastage: m.applyWastage, applyRounding: m.applyRounding, shop_name: m.shop_name, shop_id: m.shop_id || m.shopId, freeze_and_edit: m.freezeAndEdit
+        baseQty: m.baseQty, wastagePct: m.wastagePct ?? null, applyWastage: m.applyWastage, applyRounding: m.applyRounding, shop_name: m.shop_name, shop_id: m.shop_id || m.shopId, freeze_and_edit: m.freezeAndEdit,
+        is_project_pricing: m.is_project_pricing
     }));
 
     const buildPayload = (extra?: object) => ({
@@ -407,7 +416,8 @@ export default function ManageProduct() {
         applyWastage: item.apply_wastage !== undefined ? Boolean(item.apply_wastage) : (item.applyWastage !== undefined ? Boolean(item.applyWastage) : true),
         applyRounding: item.apply_rounding !== undefined ? Boolean(item.apply_rounding) : (item.applyRounding !== undefined ? Boolean(item.applyRounding) : true),
         freezeAndEdit: (item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1 || item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1),
-        shop_name: item.shop_name, shop_id: item.shop_id || item.shopId, shopId: item.shop_id || item.shopId, category: "", subcategory: ""
+        shop_name: item.shop_name, shop_id: item.shop_id || item.shopId, shopId: item.shop_id || item.shopId, category: "", subcategory: "",
+        is_project_pricing: item.is_project_pricing
     }));
 
     const applyConfig = (config: any, items: any[], src: string) => {
@@ -1491,9 +1501,21 @@ export default function ManageProduct() {
                                         <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-black">2</div>
                                         Select Materials/Items
                                     </h2>
-                                    <div className="relative w-64">
-                                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                        <Input placeholder="Search materials..." className="pl-10 h-10 bg-muted/5 font-medium" value={materialSearch} onChange={e => setMaterialSearch(e.target.value)} />
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex items-center space-x-2">
+                                            <Checkbox 
+                                                id="project-pricing-filter" 
+                                                checked={projectPricingFilter}
+                                                onCheckedChange={(checked: boolean) => setProjectPricingFilter(!!checked)}
+                                            />
+                                            <label htmlFor="project-pricing-filter" className="text-sm font-semibold cursor-pointer whitespace-nowrap">
+                                                Project Pricing Only
+                                            </label>
+                                        </div>
+                                        <div className="relative w-64">
+                                            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                            <Input placeholder="Search materials..." className="pl-10 h-10 bg-muted/5 font-medium" value={materialSearch} onChange={e => setMaterialSearch(e.target.value)} />
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
@@ -1522,6 +1544,11 @@ export default function ManageProduct() {
                                                                 <div className="flex-1 min-w-0 pr-4">
                                                                     <div className="flex items-center gap-2 mb-0.5">
                                                                         <span className="font-bold text-slate-900 group-hover:text-primary transition-colors">{material.name}</span>
+                                                                        {material.is_project_pricing && (
+                                                                            <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] px-1.5 py-0 h-4 uppercase tracking-wider ml-1">
+                                                                                Project Pricing
+                                                                            </Badge>
+                                                                        )}
                                                                         {isSelected && <Check className="h-3 w-3 text-primary animate-in zoom-in" />}
                                                                     </div>
                                                                     <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-tight">
@@ -1580,6 +1607,9 @@ export default function ManageProduct() {
                                                                 <span className="font-bold text-slate-800 text-sm truncate">{material.name}</span>
                                                                 <div className="flex items-center gap-2 mt-0.5">
                                                                     <Badge variant="outline" className="text-[9px] h-4 px-1 bg-blue-50/50 text-blue-600 font-bold border-blue-100">{material.unit}</Badge>
+                                                                    {material.is_project_pricing && (
+                                                                        <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] px-1.5 py-0 h-4 uppercase tracking-wider">PP</Badge>
+                                                                    )}
                                                                     <span className="text-[10px] text-muted-foreground font-medium truncate">{material.shop_name}</span>
                                                                 </div>
                                                                 <div className="flex flex-wrap items-center gap-1 text-[10px] mt-0.5">
@@ -1723,7 +1753,17 @@ export default function ManageProduct() {
                                                                     return fuzzySearch(step3MaterialSearch, [m.name || "", m.code || ""]);
                                                                 }).map(material => (
                                                                     <TableRow key={material.id} className="hover:bg-muted/10">
-                                                                        <TableCell className="font-medium">{material.name}<div className="text-[10px] text-muted-foreground">Code: {material.code || material.id}</div></TableCell>
+                                                                        <TableCell className="font-medium">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span>{material.name}</span>
+                                                                                {material.is_project_pricing && (
+                                                                                    <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] px-1.5 py-0 h-4 uppercase tracking-wider">
+                                                                                        Project Pricing
+                                                                                    </Badge>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="text-[10px] text-muted-foreground">Code: {material.code || material.id}</div>
+                                                                        </TableCell>
                                                                         <TableCell>{material.unit || "-"}</TableCell>
                                                                         <TableCell>{material.shop_name || "-"}</TableCell>
                                                                         <TableCell className="text-right pr-4">
@@ -1803,7 +1843,12 @@ export default function ManageProduct() {
                                                                 <TooltipProvider>
                                                                     <Tooltip>
                                                                         <TooltipTrigger asChild>
-                                                                            <span className="cursor-help">{m.name}</span>
+                                                                            <span className="cursor-help flex items-center gap-1">
+                                                                                {m.name}
+                                                                                {m.is_project_pricing && (
+                                                                                    <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[8px] px-1 py-0 h-3 uppercase tracking-wider ml-1">PP</Badge>
+                                                                                )}
+                                                                            </span>
                                                                         </TooltipTrigger>
                                                                         <TooltipContent className="max-w-[300px] break-words">
                                                                             <p className="text-xs font-bold">{m.name}</p>
