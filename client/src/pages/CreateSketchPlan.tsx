@@ -2572,13 +2572,17 @@ export default function CreateSketchPlan() {
       const reader = new FileReader();
       const fileName = file.name.split('.').slice(0, -1).join('.') || "Untitled Photo";
       reader.onloadend = () => {
-        const newItems = [...items];
-        if (category === "pre") {
-          newItems[idx].preImages = [...newItems[idx].preImages, { url: reader.result as string, name: fileName }];
-        } else {
-          newItems[idx].postImages = [...newItems[idx].postImages, { url: reader.result as string, name: fileName }];
-        }
-        setItems(newItems);
+        setItems(prevItems => {
+          const newItems = [...prevItems];
+          const item = { ...newItems[idx] };
+          if (category === "pre") {
+            item.preImages = [...(item.preImages || []), { url: reader.result as string, name: fileName }];
+          } else {
+            item.postImages = [...(item.postImages || []), { url: reader.result as string, name: fileName }];
+          }
+          newItems[idx] = item;
+          return newItems;
+        });
       };
       reader.readAsDataURL(file);
     });
@@ -2798,6 +2802,10 @@ export default function CreateSketchPlan() {
     });
 
     if (idsToRemove.size > 0) {
+      const removedIdsArray = Array.from(idsToRemove).filter(id => id);
+      if (removedIdsArray.length > 0) {
+        setDeletedItemIds(prev => [...prev, ...removedIdsArray]);
+      }
       const newItems = items.filter(item => !idsToRemove.has(item.id));
       setItems(newItems);
       toast({ title: "Duplicates Cleaned", description: `Removed ${idsToRemove.size} redundant rows. Don't forget to save your changes.` });
@@ -4445,7 +4453,11 @@ export default function CreateSketchPlan() {
                               <button onClick={() => renamePlanImage(idx)} className="absolute bottom-1 right-1 bg-indigo-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Rename photo">
                                 <Pencil className="w-3 h-3" />
                               </button>
-                              <button onClick={() => setPlanImages(planImages.filter((_, i) => i !== idx))} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Delete photo">
+                              <button onClick={() => {
+                                const removed = planImages[idx];
+                                if (removed.id) setDeletedImageIds(prev => [...prev, removed.id!]);
+                                setPlanImages(planImages.filter((_, i) => i !== idx));
+                              }} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Delete photo">
                                 <X className="w-3 h-3" />
                               </button>
                             </>
@@ -4504,7 +4516,11 @@ export default function CreateSketchPlan() {
                                 <Download className="w-3.5 h-3.5" />
                               </a>
                               {!(isLocked || userRole === "supplier") && (
-                                <button onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))} className="p-1 text-slate-500 hover:text-red-500 hover:bg-white rounded transition-colors">
+                                <button onClick={() => {
+                                  const removed = attachments[idx];
+                                  if (removed.id) setDeletedAttachmentIds(prev => [...prev, removed.id!]);
+                                  setAttachments(attachments.filter((_, i) => i !== idx));
+                                }} className="p-1 text-slate-500 hover:text-red-500 hover:bg-white rounded transition-colors">
                                   <X className="w-3.5 h-3.5" />
                                 </button>
                               )}
