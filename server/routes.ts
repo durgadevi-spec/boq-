@@ -4613,7 +4613,7 @@ export async function registerRoutes(
   app.post(
     "/api/material-submissions",
     authMiddleware,
-    requireRole("supplier", "purchase_team", "admin"),
+    requireRole("supplier", "purchase_team", "admin", "software_team", "pre_sales"),
     async (req: Request, res: Response) => {
       try {
         let {
@@ -7298,8 +7298,23 @@ export async function registerRoutes(
 
         // 2. Fetch Master Data
         const [prodRes, matRes] = await Promise.all([
-          query("SELECT id, name, category, category_name, hsn_code, sac_code FROM products"),
-          query("SELECT id, name, category, rate, supply_rate, install_rate FROM materials")
+          query(`
+            SELECT 
+              p.id, 
+              p.name, 
+              c.name as category, 
+              c.name as category_name, 
+              p.hsn_code, 
+              p.sac_code 
+            FROM products p
+            LEFT JOIN (
+              SELECT DISTINCT ON (LOWER(TRIM(name))) name, category
+              FROM material_subcategories
+              ORDER BY LOWER(TRIM(name)), (CASE WHEN category = 'Demolishing' THEN 1 ELSE 0 END) ASC, created_at DESC
+            ) s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
+            LEFT JOIN material_categories c ON LOWER(TRIM(s.category)) = LOWER(TRIM(c.name))
+          `),
+          query("SELECT id, name, category, rate FROM materials")
         ]);
 
         const prodMap = new Map(prodRes.rows.map(p => [String(p.id), p]));
