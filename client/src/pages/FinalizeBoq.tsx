@@ -3272,6 +3272,11 @@ export default function FinalizeBoq() {
   };
 
   const handleDownloadPdfOpenDialog = () => {
+    if (isFinanceTeam && activeVersion?.status !== "approved") {
+      toast({ title: "Not Approved", description: "You cannot download the PDF until it is approved.", variant: "destructive" });
+      return;
+    }
+
     if (!selectedProjectId || boqItems.length === 0) {
       toast({ title: "Info", description: `No ${activeVersion?.type === 'boq' ? 'BOQ' : 'BOM'} items to download`, variant: "default" });
       return;
