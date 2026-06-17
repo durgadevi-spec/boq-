@@ -2961,7 +2961,7 @@ export default function CreateBom() {
                                 <SelectTrigger className="flex-1 min-w-[140px] bg-slate-50 border-slate-200 h-9 px-3">
                                   <SelectValue placeholder="Select version" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className="max-h-[300px] overflow-y-auto">
                                   {versions.map((v: BOMVersion) => {
                                     const isManualFinal = (v as any).is_last_final;
                                     const isLatestApproved = !versions.some(x => (x as any).is_last_final) && v.status === 'approved' && v.version_number === Math.max(...versions.filter(x => x.status === 'approved').map(x => x.version_number), 0);
@@ -3045,17 +3045,19 @@ export default function CreateBom() {
                               <History className="h-4 w-4" />
                               <span>History</span>
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-red-600 gap-2 font-semibold"
-                              title="Delete Version"
-                              onClick={handleDeleteVersion}
-                              disabled={!selectedVersionId}
-                            >
-                              <XCircle className="h-4 w-4" />
-                              <span>Delete</span>
-                            </Button>
+                            {(user?.role === 'admin' || user?.role === 'software_team') && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-red-600 gap-2 font-semibold"
+                                title="Delete Version"
+                                onClick={handleDeleteVersion}
+                                disabled={!selectedVersionId}
+                              >
+                                <XCircle className="h-4 w-4" />
+                                <span>Delete</span>
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"

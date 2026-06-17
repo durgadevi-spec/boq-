@@ -78,6 +78,7 @@ import { postJSON, apiFetch } from "@/lib/api";
 import { Link, useLocation } from "wouter";
 import * as XLSX from "xlsx";
 import { AllMaterialsSplitView } from "@/components/admin/AllMaterialsSplitView";
+import { AllProductsSplitView } from "@/components/admin/AllProductsSplitView";
 
 /* 🔴 REQUIRED ASTERISK */
 const Required = () => <span className="text-red-500 ml-1">*</span>;
@@ -962,6 +963,7 @@ export default function AdminDashboard() {
   // Toggle states for full-page lists
   const [showShopsList, setShowShopsList] = useState(false);
   const [showMaterialsList, setShowMaterialsList] = useState(false);
+  const [showProductsList, setShowProductsList] = useState(false);
 
   const filteredShops = localShops.filter((s: any) => {
     // text search
@@ -2428,6 +2430,32 @@ export default function AdminDashboard() {
                           onDelete={(mat) => setGenericDelete({ isOpen: true, id: mat.id, name: mat.name, type: 'material' })}
                           canEditDelete={canEditDelete}
                           userRole={user?.role || ""}
+                        />
+                      </div>
+                    )}
+                  </Card>
+                  
+                  <Card className="px-4 py-3 cursor-pointer select-none" onClick={() => setShowProductsList(!showProductsList)}>
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-blue-50">
+                        <Package className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-base">All Products</p>
+                        <p className="text-xs text-muted-foreground">
+                          Approved products and their materials
+                        </p>
+                      </div>
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+                        {products.filter((p: any) => p.is_approved).length}
+                      </span>
+                      <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", showProductsList && "rotate-90")} />
+                    </div>
+                    {showProductsList && (
+                      <div onClick={(e) => e.stopPropagation()} className="mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <AllProductsSplitView 
+                          products={products.filter((p: any) => p.is_approved)}
+                          onClose={() => setShowProductsList(false)}
                         />
                       </div>
                     )}

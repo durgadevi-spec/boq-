@@ -492,12 +492,12 @@ export default function ProductApprovals() {
     );
   });
 
-  const editRequests = filteredApprovals.filter(a => a.status === "edit_requested");
-  const standardApprovals = filteredApprovals.filter(a => a.status !== "edit_requested");
+  const editRequests = filteredApprovals.filter(a => a.status === "edit_requested").sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
+  const standardApprovals = filteredApprovals.filter(a => a.status !== "edit_requested").sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
 
   const renderTable = (list: Approval[]) => {
     return (
-      <div className="rounded-xl border shadow-sm overflow-hidden bg-white">
+      <div className="rounded-xl border shadow-sm overflow-hidden bg-white max-h-[600px] overflow-y-auto">
         <Table>
           <TableHeader className="bg-muted/30">
             <TableRow>

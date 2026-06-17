@@ -5670,7 +5670,7 @@ export async function registerRoutes(
         await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN DEFAULT FALSE");
 
         const { type, excludeApproved } = req.query;
-        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, is_disabled, created_at, updated_at, category_order 
+        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, is_disabled, last_template_snapshot, created_at, updated_at, category_order 
                  FROM boq_versions 
                  WHERE project_id = $1`;
         const params: any[] = [projectId];

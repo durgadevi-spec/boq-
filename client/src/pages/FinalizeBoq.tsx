@@ -1701,23 +1701,23 @@ export default function FinalizeBoq() {
               if (missingColItems.length > 0) {
                 const templateCols = restoredCols[firstItemId];
                 const newRestoredCols = { ...restoredCols };
-                
+
                 missingColItems.forEach(it => {
                   newRestoredCols[it.id] = [...templateCols];
-                  
+
                   let td = it.table_data || {};
                   if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
                   const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
-                  
+
                   const defaultRowVals: any = {};
                   step11.forEach((_: any, ri: number) => {
                     defaultRowVals[ri] = {};
                   });
                   restoredVals[it.id] = defaultRowVals;
-                  
+
                   td.finalize_columns = templateCols;
                   td.finalize_column_values = defaultRowVals;
-                  
+
                   // Auto-save this configuration back to the DB immediately
                   apiFetch(`/api/boq-items/${it.id}`, {
                     method: "PUT",
@@ -1725,7 +1725,7 @@ export default function FinalizeBoq() {
                     body: JSON.stringify({ table_data: td })
                   }).catch(e => console.error("Auto-apply template to new item failed", e));
                 });
-                
+
                 setCustomColumns(newRestoredCols);
               }
             }
@@ -2712,8 +2712,7 @@ export default function FinalizeBoq() {
         body: JSON.stringify({
           status: "submitted",
           is_locked: true,
-          is_boq_submission: true,
-          type: "boq"
+          is_boq_submission: true
         }),
       });
 
@@ -2722,7 +2721,7 @@ export default function FinalizeBoq() {
 
       toast({
         title: "Success",
-        description: "BOQ version submitted for approval",
+        description: "Version submitted for approval",
       });
     } catch (err) {
       console.error("Failed to submit for approval:", err);
@@ -3745,8 +3744,8 @@ export default function FinalizeBoq() {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const isVersionSubmitted = !!activeVersion && (
-    activeVersion.type === 'bom' 
-      ? bomFinalizeLocked 
+    activeVersion.type === 'bom'
+      ? bomFinalizeLocked
       : (activeVersion.is_locked || ["submitted", "pending_approval", "edit_requested"].includes(activeVersion.status))
   );
 
@@ -4561,12 +4560,12 @@ export default function FinalizeBoq() {
                         </span>
                         {!isVersionSubmitted && (
                           <div className="flex gap-0.5 ml-2 border-l pl-2 border-slate-200">
-                            <button onClick={(e) => { 
-                              e.stopPropagation(); 
+                            <button onClick={(e) => {
+                              e.stopPropagation();
                               const prev = [...categoryOrder];
                               const idx = prev.indexOf(cat);
                               if (idx > 0) {
-                                const temp = prev[idx]; prev[idx] = prev[idx-1]; prev[idx-1] = temp;
+                                const temp = prev[idx]; prev[idx] = prev[idx - 1]; prev[idx - 1] = temp;
                                 setCategoryOrder(prev);
                                 setTimeout(() => {
                                   if (activeVersionId) {
@@ -4580,12 +4579,12 @@ export default function FinalizeBoq() {
                             }} className="p-0.5 hover:bg-slate-200 rounded text-slate-500" title="Move Left">
                               <ChevronLeft className="w-3 h-3" />
                             </button>
-                            <button onClick={(e) => { 
-                              e.stopPropagation(); 
+                            <button onClick={(e) => {
+                              e.stopPropagation();
                               const prev = [...categoryOrder];
                               const idx = prev.indexOf(cat);
                               if (idx < prev.length - 1) {
-                                const temp = prev[idx]; prev[idx] = prev[idx+1]; prev[idx+1] = temp;
+                                const temp = prev[idx]; prev[idx] = prev[idx + 1]; prev[idx + 1] = temp;
                                 setCategoryOrder(prev);
                                 setTimeout(() => {
                                   if (activeVersionId) {
@@ -6307,7 +6306,7 @@ export default function FinalizeBoq() {
                     <Button
                       onClick={async () => {
                         if (!activeVersionId) return;
-                        
+
                         if (activeVersion?.type === 'bom') {
                           try {
                             await apiFetch(`/api/global-settings/finalize_lock_${activeVersionId}`, {

@@ -359,8 +359,8 @@ export default function BomApprovals() {
         }
     };
 
-    const pendingApprovals = visibleApprovals.filter(a => a.status !== 'edit_requested');
-    const editRequests = visibleApprovals.filter(a => a.status === 'edit_requested');
+    const pendingApprovals = visibleApprovals.filter(a => a.status !== 'edit_requested').sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
+    const editRequests = visibleApprovals.filter(a => a.status === 'edit_requested').sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
 
     const renderTable = (approvalsList: BOMApproval[], title: string, emptyMessage: string) => {
         if (approvalsList.length === 0) return null;
@@ -381,8 +381,8 @@ export default function BomApprovals() {
         };
 
         return (
-            <div className="mb-8 last:mb-0">
-                {title && <h3 className="text-lg font-bold mb-4 text-slate-800">{title}</h3>}
+            <div className="mb-8 last:mb-0 max-h-[600px] overflow-y-auto rounded-xl border shadow-sm">
+                {title && <h3 className="text-lg font-bold mb-4 text-slate-800 p-4 pb-0">{title}</h3>}
                 <Table>
                     <TableHeader>
                         <TableRow>
