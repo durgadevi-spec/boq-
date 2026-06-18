@@ -567,6 +567,110 @@ const measureText = (text: string, font: string) => {
   return width;
 };
 
+const CategoryReorderItem = ({ 
+  cat, 
+  isVersionSubmitted, 
+  activeVersionId, 
+  selectedProjectId, 
+  latestCategoryOrderRef, 
+  toast, 
+  categoryFilter, 
+  setCategoryFilter, 
+  boqItems, 
+  categoryOrder, 
+  setCategoryOrder 
+}: any) => {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      key={cat}
+      value={cat}
+      as="div"
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={() => {
+        if (activeVersionId && selectedProjectId && !isVersionSubmitted) {
+          apiFetch(`/api/boq-versions/${activeVersionId}/category-order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ categoryOrder: latestCategoryOrderRef.current })
+          }).then(resp => {
+            if (resp.ok) {
+              toast({ title: "Success", description: "Category order updated" });
+            } else {
+              toast({ title: "Error", description: "Failed to save category order", variant: "destructive" });
+            }
+          }).catch(err => {
+            console.error("Failed to save category order:", err);
+            toast({ title: "Error", description: "Failed to save category order", variant: "destructive" });
+          });
+        }
+      }}
+      className={`flex items-center gap-1.5 text-[10px] font-bold px-4 py-2 uppercase tracking-wider rounded-md transition-all shrink-0 ${categoryFilter === cat ? "bg-white text-blue-600 shadow-sm" : "text-slate-600 hover:bg-slate-50"} cursor-default`}
+      onClick={() => setCategoryFilter(cat)}
+    >
+      {!isVersionSubmitted && (
+        <GripVertical 
+          className="h-3 w-3 text-slate-400 cursor-grab active:cursor-grabbing shrink-0" 
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            controls.start(e);
+          }} 
+        />
+      )}
+      <span>
+        {cat} ({boqItems.filter((i: any) => {
+          let td = i.table_data;
+          if (typeof td === 'string') try { td = JSON.parse(td); } catch { td = {}; }
+          return td.category === cat || td.category_name === cat;
+        }).length})
+      </span>
+      {!isVersionSubmitted && (
+        <div className="flex gap-0.5 ml-2 border-l pl-2 border-slate-200">
+          <button onClick={(e) => {
+            e.stopPropagation();
+            const prev = [...categoryOrder];
+            const idx = prev.indexOf(cat);
+            if (idx > 0) {
+              const temp = prev[idx]; prev[idx] = prev[idx - 1]; prev[idx - 1] = temp;
+              setCategoryOrder(prev);
+              setTimeout(() => {
+                if (activeVersionId) {
+                  apiFetch(`/api/boq-versions/${activeVersionId}/category-order`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ categoryOrder: prev })
+                  });
+                }
+              }, 50);
+            }
+          }} className="p-0.5 hover:bg-slate-200 rounded text-slate-500" title="Move Left">
+            <ChevronLeft className="w-3 h-3" />
+          </button>
+          <button onClick={(e) => {
+            e.stopPropagation();
+            const prev = [...categoryOrder];
+            const idx = prev.indexOf(cat);
+            if (idx < prev.length - 1) {
+              const temp = prev[idx]; prev[idx] = prev[idx + 1]; prev[idx + 1] = temp;
+              setCategoryOrder(prev);
+              setTimeout(() => {
+                if (activeVersionId) {
+                  apiFetch(`/api/boq-versions/${activeVersionId}/category-order`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ categoryOrder: prev })
+                  });
+                }
+              }, 50);
+            }
+          }} className="p-0.5 hover:bg-slate-200 rounded text-slate-500" title="Move Right">
+            <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+    </Reorder.Item>
+  );
+};
+
 export default function FinalizeBoq() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [boqItems, setBoqItems] = useState<BOMItem[]>([]);
@@ -4114,7 +4218,13 @@ export default function FinalizeBoq() {
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="bg-white border-slate-200 font-bold h-full px-4 flex items-center gap-2 text-[11px] shadow-sm">
                       <LayoutTemplate className="h-4 w-4 text-blue-600" />
-                      <span>{selectedTemplateId ? templates.find(t => t.id === selectedTemplateId)?.name : "Apply Template"}</span>
+                      <span className="max-w-[150px] truncate" title={selectedTemplateId ? templates.find(t => t.id === selectedTemplateId)?.name : (activeVersion as any)?.last_template_snapshot?.templateName ? `Applied: ${(activeVersion as any)?.last_template_snapshot?.templateName}` : "Apply Template"}>
+                        {selectedTemplateId
+                          ? templates.find(t => t.id === selectedTemplateId)?.name
+                          : (activeVersion as any)?.last_template_snapshot?.templateName
+                            ? `Applied: ${(activeVersion as any)?.last_template_snapshot?.templateName}`
+                            : "Apply Template"}
+                      </span>
                       <ChevronDown className="h-3 w-3 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -4522,85 +4632,20 @@ export default function FinalizeBoq() {
                       All ({boqItems.length})
                     </button>
                     {categoryOrder.map((cat) => (
-                      <Reorder.Item
+                      <CategoryReorderItem
                         key={cat}
-                        value={cat}
-                        as="div"
-                        drag={!isVersionSubmitted}
-                        dragElastic={0.2}
-                        dragMomentum={false}
-                        onDragEnd={() => {
-                          if (activeVersionId && selectedProjectId && !isVersionSubmitted) {
-                            apiFetch(`/api/boq-versions/${activeVersionId}/category-order`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ categoryOrder: latestCategoryOrderRef.current })
-                            }).then(resp => {
-                              if (resp.ok) {
-                                toast({ title: "Success", description: "Category order updated" });
-                              } else {
-                                toast({ title: "Error", description: "Failed to save category order", variant: "destructive" });
-                              }
-                            }).catch(err => {
-                              console.error("Failed to save category order:", err);
-                              toast({ title: "Error", description: "Failed to save category order", variant: "destructive" });
-                            });
-                          }
-                        }}
-                        className={`flex items-center gap-1.5 text-[10px] font-bold px-4 py-2 uppercase tracking-wider rounded-md transition-all shrink-0 ${categoryFilter === cat ? "bg-white text-blue-600 shadow-sm" : "text-slate-600 hover:bg-slate-50"} ${!isVersionSubmitted ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
-                        onClick={() => setCategoryFilter(cat)}
-                      >
-                        {!isVersionSubmitted && <GripVertical className="h-3 w-3 text-slate-400" />}
-                        <span>
-                          {cat} ({boqItems.filter(i => {
-                            let td = i.table_data;
-                            if (typeof td === 'string') try { td = JSON.parse(td); } catch { td = {}; }
-                            return td.category === cat || td.category_name === cat;
-                          }).length})
-                        </span>
-                        {!isVersionSubmitted && (
-                          <div className="flex gap-0.5 ml-2 border-l pl-2 border-slate-200">
-                            <button onClick={(e) => {
-                              e.stopPropagation();
-                              const prev = [...categoryOrder];
-                              const idx = prev.indexOf(cat);
-                              if (idx > 0) {
-                                const temp = prev[idx]; prev[idx] = prev[idx - 1]; prev[idx - 1] = temp;
-                                setCategoryOrder(prev);
-                                setTimeout(() => {
-                                  if (activeVersionId) {
-                                    apiFetch(`/api/boq-versions/${activeVersionId}/category-order`, {
-                                      method: "POST", headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ categoryOrder: prev })
-                                    });
-                                  }
-                                }, 50);
-                              }
-                            }} className="p-0.5 hover:bg-slate-200 rounded text-slate-500" title="Move Left">
-                              <ChevronLeft className="w-3 h-3" />
-                            </button>
-                            <button onClick={(e) => {
-                              e.stopPropagation();
-                              const prev = [...categoryOrder];
-                              const idx = prev.indexOf(cat);
-                              if (idx < prev.length - 1) {
-                                const temp = prev[idx]; prev[idx] = prev[idx + 1]; prev[idx + 1] = temp;
-                                setCategoryOrder(prev);
-                                setTimeout(() => {
-                                  if (activeVersionId) {
-                                    apiFetch(`/api/boq-versions/${activeVersionId}/category-order`, {
-                                      method: "POST", headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ categoryOrder: prev })
-                                    });
-                                  }
-                                }, 50);
-                              }
-                            }} className="p-0.5 hover:bg-slate-200 rounded text-slate-500" title="Move Right">
-                              <ChevronRight className="w-3 h-3" />
-                            </button>
-                          </div>
-                        )}
-                      </Reorder.Item>
+                        cat={cat}
+                        isVersionSubmitted={isVersionSubmitted}
+                        activeVersionId={activeVersionId}
+                        selectedProjectId={selectedProjectId}
+                        latestCategoryOrderRef={latestCategoryOrderRef}
+                        toast={toast}
+                        categoryFilter={categoryFilter}
+                        setCategoryFilter={setCategoryFilter}
+                        boqItems={boqItems}
+                        categoryOrder={categoryOrder}
+                        setCategoryOrder={setCategoryOrder}
+                      />
                     ))}
                   </Reorder.Group>
                 </div>
@@ -5344,10 +5389,14 @@ export default function FinalizeBoq() {
                     </thead>
                     <Reorder.Group
                       axis="y"
-                      values={boqItems}
-                      onReorder={async (newItems) => {
-                        if (boqSearchTerm || categoryFilter !== "all" || paginatedBoqItems.length < boqItems.length) return;
-                        setBoqItems(newItems);
+                      values={paginatedBoqItems}
+                      onReorder={async (newPaginatedItems) => {
+                        if (boqSearchTerm || categoryFilter !== "all") return;
+                        
+                        const startIndex = (currentPage - 1) * pageSize;
+                        const newBoqItems = [...boqItems];
+                        newBoqItems.splice(startIndex, newPaginatedItems.length, ...newPaginatedItems);
+                        setBoqItems(newBoqItems);
 
                         if (isVersionSubmitted) return;
 
@@ -5355,7 +5404,7 @@ export default function FinalizeBoq() {
                           const resp = await apiFetch("/api/boq-items/reorder", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ itemIds: newItems.map((i) => i.id) }),
+                            body: JSON.stringify({ itemIds: newBoqItems.map((i) => i.id) }),
                           });
 
                           if (resp.ok) {

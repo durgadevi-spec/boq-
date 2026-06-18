@@ -1504,6 +1504,19 @@ export async function registerRoutes(
     );
   }
 
+  // Ensure boq_items has a precomputed computed_value column for fast project value aggregation
+  try {
+    await query(
+      `ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS computed_value NUMERIC DEFAULT 0`,
+    );
+    console.log("[db] boq_items computed_value column ensured");
+  } catch (err: unknown) {
+    console.warn(
+      "[db] Could not ensure computed_value column on boq_items:",
+      (err as any)?.message || err,
+    );
+  }
+
   // Ensure material_templates table has vendor_category, tax_code_type, and tax_code_value columns
   try {
     await query(
@@ -5796,8 +5809,8 @@ export async function registerRoutes(
 
             const newItemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${Math.random().toString(36).substr(2, 9)}`;
             await query(
-              `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, sort_order, user_added, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+              `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, sort_order, user_added, computed_value, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
               [
                 newItemId,
                 project_id,
@@ -5806,6 +5819,7 @@ export async function registerRoutes(
                 versionId,
                 item.sort_order,
                 item.user_added ?? true,
+                item.computed_value ?? 0,
               ],
             );
           }
@@ -6288,8 +6302,8 @@ export async function registerRoutes(
           if (editsAppliedToThisItem > 0) {
             // Update DB with modified table_data object (stringified)
             const updateResult = await query(
-              `UPDATE boq_items SET table_data = $1 WHERE id = $2`,
-              [JSON.stringify(tableData), boqItemId]
+              `UPDATE boq_items SET table_data = $1, computed_value = $2 WHERE id = $3`,
+              [JSON.stringify(tableData), computeItemValue(tableData), boqItemId]
             );
             console.log(`[save-edits] DB UPDATE SUCCESS for ${boqItemId}. Rows affected: ${updateResult.rowCount}`);
 
@@ -6889,6 +6903,46 @@ export async function registerRoutes(
     },
   );
 
+  // Pure function: computes the monetary value for a single BOQ item's table_data.
+  // This is a verbatim extraction of the per-item math inside recalculateProjectValue —
+  // no logic changes, no simplifications.
+  function computeItemValue(tableData: any): number {
+    if (!tableData) return 0;
+    let itemSubtotal = 0;
+    if (tableData.materialLines && tableData.targetRequiredQty !== undefined && tableData.configBasis) {
+      const requiredQty = Number(tableData.targetRequiredQty) || 0;
+      if (Array.isArray(tableData.materialLines)) {
+        const base = Number(tableData.configBasis?.baseRequiredQty || 1);
+        tableData.materialLines.forEach((line: any) => {
+          if (!line) return;
+          const perUnitQty = parseFloat(line.perUnitQty || line.qty || line.baseQty || 0);
+          const rate = parseFloat(line.rate || (line.supplyRate + line.installRate) || 0);
+          const scaledPerUnit = base > 0 ? perUnitQty / base : 0;
+          itemSubtotal += (requiredQty * scaledPerUnit) * rate;
+        });
+      }
+      if (Array.isArray(tableData.step11_items)) {
+        tableData.step11_items.forEach((item: any) => {
+          const qty = parseFloat(item.qty) || 0;
+          const supply = parseFloat(item.supply_rate || item.rate || 0);
+          const install = parseFloat(item.install_rate) || 0;
+          itemSubtotal += qty * (supply + install);
+        });
+      }
+    } else {
+      const items = tableData.step11_items || [];
+      if (Array.isArray(items)) {
+        items.forEach((item: any) => {
+          const qty = parseFloat(item.qty) || 0;
+          const supply = parseFloat(item.supply_rate || item.rate || 0);
+          const install = parseFloat(item.install_rate) || 0;
+          itemSubtotal += qty * (supply + install);
+        });
+      }
+    }
+    return itemSubtotal;
+  }
+
   // Helper function to update project_value in boq_projects table
   async function recalculateProjectValue(projectId: string, versionId?: string) {
     try {
@@ -6906,74 +6960,18 @@ export async function registerRoutes(
         targetVersionId = versionResult.rows[0].id;
       }
 
-      // Fetch all items for this version
-      const itemsResult = await query(
-        `SELECT id, table_data, estimator, created_at FROM boq_items WHERE version_id = $1`,
-        [targetVersionId],
-      );
-
       const archivedIds = await archiveService.getArchivedItemIds('boq_items');
       const trashedIds = await archiveService.getTrashedItemIds('boq_items');
+      const excludedIds = [...archivedIds, ...trashedIds];
 
-
-      const entriesToProcess = [];
-      for (const row of itemsResult.rows) {
-        // Skip archived/trashed if archiveService is available
-        try {
-          if (archivedIds.includes(row.id) || trashedIds.includes(row.id)) continue;
-        } catch (e) { /* ignore archive filter errors */ }
-
-        let tableData = row.table_data;
-        if (!tableData) continue;
-        if (typeof tableData === "string") {
-          try { tableData = JSON.parse(tableData); } catch (e) { continue; }
-        }
-        entriesToProcess.push({ row, tableData });
-      }
-
-      let totalValue = 0;
-      for (const entry of entriesToProcess) {
-        const { tableData } = entry;
-
-        // Logic must handle BOTH Engine-based (with materialLines) and Manual items
-        if (tableData.materialLines && tableData.targetRequiredQty !== undefined && tableData.configBasis) {
-          // Re-calculate the grandTotal for the Engine item
-          const requiredQty = Number(tableData.targetRequiredQty) || 0;
-          let itemSubtotal = 0;
-          if (Array.isArray(tableData.materialLines)) {
-            const base = Number(tableData.configBasis?.baseRequiredQty || 1);
-            tableData.materialLines.forEach((line: any) => {
-              if (!line) return;
-              const perUnitQty = parseFloat(line.perUnitQty || line.qty || line.baseQty || 0);
-              const rate = parseFloat(line.rate || (line.supplyRate + line.installRate) || 0);
-              const scaledPerUnit = base > 0 ? perUnitQty / base : 0;
-              itemSubtotal += (requiredQty * scaledPerUnit) * rate;
-            });
-          }
-
-          // Also add manual items attached to this engine product
-          if (Array.isArray(tableData.step11_items)) {
-            tableData.step11_items.forEach((item: any) => {
-              const qty = parseFloat(item.qty) || 0;
-              const supply = parseFloat(item.supply_rate || item.rate || 0); // handle rate/supply_rate
-              const install = parseFloat(item.install_rate) || 0;
-              itemSubtotal += qty * (supply + install);
-            });
-          }
-          totalValue += itemSubtotal;
-        } else {
-          // Manual items only
-          const items = tableData.step11_items || [];
-          if (Array.isArray(items)) {
-            items.forEach((item: any) => {
-              const qty = parseFloat(item.qty) || 0;
-              const supply = parseFloat(item.supply_rate || item.rate || 0);
-              const install = parseFloat(item.install_rate) || 0;
-              totalValue += qty * (supply + install);
-            });
-          }
-        }
-      }
+      const sumResult = await query(
+        `SELECT COALESCE(SUM(computed_value), 0) AS total
+         FROM boq_items
+         WHERE version_id = $1
+         ${excludedIds.length > 0 ? 'AND id != ALL($2::text[])' : ''}`,
+        excludedIds.length > 0 ? [targetVersionId, excludedIds] : [targetVersionId],
+      );
+      const totalValue = parseFloat(sumResult.rows[0].total) || 0;
 
       // 2. Update the specific version's price snapshot
       await query(
@@ -7046,9 +7044,9 @@ export async function registerRoutes(
         for (const tData of boqItems) {
           const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           await query(
-            `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, sort_order, created_at)
-             VALUES ($1, $2, $3, $4, $5, true, $6, NOW())`,
-            [itemId, projectId, (tData.product_name || "Custom Item").substring(0, 50), JSON.stringify(tData), targetVersionId, currentSortOrder++]
+            `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, sort_order, computed_value, created_at)
+             VALUES ($1, $2, $3, $4, $5, true, $6, $7, NOW())`,
+            [itemId, projectId, (tData.product_name || "Custom Item").substring(0, 50), JSON.stringify(tData), targetVersionId, currentSortOrder++, computeItemValue(tData)]
           );
         }
 
@@ -7116,8 +7114,8 @@ export async function registerRoutes(
         const nextSortOrder = (maxSortOrderResult.rows[0]?.max_sort_order || 0) + 1;
 
         await query(
-          `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, sort_order, created_at)
-         VALUES ($1, $2, $3, $4, $5, true, $6, NOW())`,
+          `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, sort_order, computed_value, created_at)
+         VALUES ($1, $2, $3, $4, $5, true, $6, $7, NOW())`,
           [
             itemId,
             project_id,
@@ -7125,6 +7123,7 @@ export async function registerRoutes(
             JSON.stringify(table_data),
             version_id || null,
             nextSortOrder,
+            computeItemValue(table_data),
           ],
         );
 
@@ -7222,8 +7221,8 @@ export async function registerRoutes(
 
           const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${Math.random().toString(36).substr(2, 9)}`;
           await query(
-            `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, sort_order, created_at)
-             VALUES ($1, $2, $3, $4, $5, true, $6, NOW())`,
+            `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, sort_order, computed_value, created_at)
+             VALUES ($1, $2, $3, $4, $5, true, $6, $7, NOW())`,
             [
               itemId,
               project_id,
@@ -7231,6 +7230,7 @@ export async function registerRoutes(
               JSON.stringify(item.table_data),
               version_id || null,
               currentSortOrder++,
+              computeItemValue(item.table_data),
             ],
           );
           results.push({ id: itemId });
@@ -7604,7 +7604,7 @@ export async function registerRoutes(
         if (updates.length > 0) {
           await query("BEGIN");
           for (const u of updates) {
-            await query("UPDATE boq_items SET table_data = $1 WHERE id = $2", [JSON.stringify(u.table_data), u.id]);
+            await query("UPDATE boq_items SET table_data = $1, computed_value = $2 WHERE id = $3", [JSON.stringify(u.table_data), computeItemValue(u.table_data), u.id]);
           }
           await query("COMMIT");
           console.log(`[RefreshBOM] Applied ${updates.length} updates.`);
@@ -7678,8 +7678,8 @@ export async function registerRoutes(
         }
 
         await query(
-          "UPDATE boq_items SET table_data = $1, created_at = NOW() WHERE id = $2",
-          [JSON.stringify(table_data), id]
+          "UPDATE boq_items SET table_data = $1, computed_value = $2, created_at = NOW() WHERE id = $3",
+          [JSON.stringify(table_data), computeItemValue(table_data), id]
         );
 
         res.json({ message: "BOM item updated successfully" });
@@ -7694,7 +7694,7 @@ export async function registerRoutes(
   app.post(
     "/api/boq-items/reorder",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "pre_sales"),
+    requireRole("admin", "software_team", "purchase_team", "pre_sales", "finance_team"),
     async (req: Request, res: Response) => {
       try {
         const { itemIds } = req.body; // Expects array of item IDs in correct order
@@ -7780,8 +7780,8 @@ export async function registerRoutes(
         }
 
         await query(
-          `UPDATE boq_items SET table_data = $1, created_at = NOW() WHERE id = $2`,
-          [JSON.stringify(table_data), itemId],
+          `UPDATE boq_items SET table_data = $1, computed_value = $2, created_at = NOW() WHERE id = $3`,
+          [JSON.stringify(table_data), computeItemValue(table_data), itemId],
         );
 
         // Recalculate project value
