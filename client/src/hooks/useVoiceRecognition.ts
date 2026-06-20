@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import apiFetch from "@/lib/api";
 
 interface VoiceRecognitionOptions {
   onResult: (text: string) => void;
@@ -9,6 +10,7 @@ interface VoiceRecognitionOptions {
 
 export const useVoiceRecognition = ({ onResult, onEnd, continuous = false, interimResults = false }: VoiceRecognitionOptions) => {
   const [isListening, setIsListening] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const recognitionRef = useRef<any>(null);
   
   // Use refs for callbacks to prevent re-initializing recognition on every render
@@ -33,12 +35,36 @@ export const useVoiceRecognition = ({ onResult, onEnd, continuous = false, inter
         setIsListening(false);
         if (onEndRef.current) onEndRef.current();
       };
-      recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
+      
+      // Store the final accumulated transcript string
+      let finalTranscript = '';
+      
+      recognition.onresult = async (event: any) => {
+        let currentTranscript = Array.from(event.results)
           .map((result: any) => result[0])
           .map((result: any) => result.transcript)
           .join('');
-        if (onResultRef.current) onResultRef.current(transcript);
+          
+        if (!interimResults && event.results[event.results.length - 1].isFinal) {
+           setIsProcessing(true);
+           try {
+             const res = await apiFetch('/api/translate-voice', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ text: currentTranscript })
+             });
+             if (res.ok) {
+               const data = await res.json();
+               currentTranscript = data.translatedText || currentTranscript;
+             }
+           } catch (err) {
+             console.error("Translation API failed:", err);
+           } finally {
+             setIsProcessing(false);
+           }
+        }
+        
+        if (onResultRef.current) onResultRef.current(currentTranscript);
       };
 
       recognition.onerror = (event: any) => {
@@ -76,5 +102,5 @@ export const useVoiceRecognition = ({ onResult, onEnd, continuous = false, inter
     }
   }, []);
 
-  return { isListening, startListening, stopListening, isSupported: !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) };
+  return { isListening, isProcessing, startListening, stopListening, isSupported: !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) };
 };

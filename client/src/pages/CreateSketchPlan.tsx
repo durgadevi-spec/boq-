@@ -11,12 +11,12 @@ import apiFetch from "@/lib/api";
 import { motion, Reorder, useDragControls, AnimatePresence } from "framer-motion";
 import { SketchPad } from "@/components/SketchPad";
 import { BoqPreviewModal } from "@/components/sketch/BoqPreviewModal";
-import { 
-  Plus, Trash2, Save, ArrowLeft, Camera, Pencil, Layers, X, GripVertical, 
-  FileText, Search, MessageSquare, Image as ImageIcon, Move, Lock, Unlock, 
-  ShieldAlert, Cloud, Check, AlertCircle, AlertTriangle, FileUp, FileSpreadsheet, 
-  Download, Paperclip, ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine, 
-  GitBranch, Store, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, 
+import {
+  Plus, Trash2, Save, ArrowLeft, Camera, Pencil, Layers, X, GripVertical,
+  FileText, Search, MessageSquare, Image as ImageIcon, Move, Lock, Unlock,
+  ShieldAlert, Cloud, Check, AlertCircle, AlertTriangle, FileUp, FileSpreadsheet,
+  Download, Paperclip, ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine,
+  GitBranch, Store, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown,
   ArrowDownAz, Users, Copy, Loader2, Zap, Calculator, Eye, Upload, Mic, MicOff, UserCircle, Settings
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -83,6 +83,7 @@ interface PlanItem {
   assigned_user_name?: string;
   user_task_status?: string;
   sort_order?: number;
+  item_description?: string;
 }
 
 interface ColumnVisibility {
@@ -286,7 +287,7 @@ const SketchPlanRow = React.memo(({
   const dims = item.dimensions?.length ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
 
   // Voice for Inline Notes
-  const { isListening: isListeningNotes, startListening: startNotes, stopListening: stopNotes } = useVoiceRecognition({
+  const { isListening: isListeningNotes, isProcessing: isProcessingNotes, startListening: startNotes, stopListening: stopNotes } = useVoiceRecognition({
     onResult: (text) => {
       updateItem(idx, "description", text);
       setMaterialSearch(text);
@@ -406,35 +407,39 @@ const SketchPlanRow = React.memo(({
                       </div>
                     </div>
                   </div>
-                    <div className="flex items-center gap-2 relative">
-                      <Textarea
-                        value={item.description}
-                        onChange={(e) => {
-                          updateItem(idx, "description", e.target.value);
-                          setMaterialSearch(e.target.value);
-                        }}
-                        onFocus={() => {
-                          setOpenNotesIdx(idx);
-                          setMaterialSearch(item.description || "");
-                        }}
-                        placeholder="Enter detailed site notes... (Speak or type)"
-                        className="min-h-[100px] resize-none focus:ring-2 focus:ring-indigo-500/20 pr-10"
-                        disabled={isLocked}
-                      />
-                      <Button 
-                        size="icon" 
-                        variant="ghost" 
-                        className={cn("absolute right-2 bottom-2 rounded-full", isListeningNotes ? "text-red-500 animate-pulse bg-red-50" : "text-slate-400")}
-                        onClick={() => isListeningNotes ? stopNotes() : startNotes()}
-                      >
-                        {isListeningNotes ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                      </Button>
-                    </div>
-                  
+                  <div className="flex items-center gap-2 relative">
+                    <Textarea
+                      value={item.description}
+                      onChange={(e) => {
+                        updateItem(idx, "description", e.target.value);
+                        setMaterialSearch(e.target.value);
+                      }}
+                      onFocus={() => {
+                        setOpenNotesIdx(idx);
+                        setMaterialSearch(item.description || "");
+                      }}
+                      placeholder="Enter detailed site notes... (Speak or type)"
+                      className="min-h-[100px] resize-none focus:ring-2 focus:ring-indigo-500/20 pr-10"
+                      disabled={isLocked}
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={cn("absolute right-2 bottom-2 rounded-full", isListeningNotes ? "text-red-500 animate-pulse bg-red-50" : isProcessingNotes ? "text-indigo-500" : "text-slate-400")}
+                      onClick={() => {
+                        if (isListeningNotes) stopNotes();
+                        else if (!isProcessingNotes) startNotes();
+                      }}
+                      disabled={isProcessingNotes}
+                    >
+                      {isProcessingNotes ? <Loader2 className="w-4 h-4 animate-spin" /> : isListeningNotes ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                    </Button>
+                  </div>
+
                   {/* Embedded Search Results inside Notes Dialog */}
                   {materialSearch.trim().length >= 2 && (
                     <div className="mt-2 border rounded-lg bg-white shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                      <div 
+                      <div
                         className="bg-slate-50 px-3 py-1.5 border-b flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors"
                         onClick={() => setShowQuickSelection(!showQuickSelection)}
                       >
@@ -446,80 +451,82 @@ const SketchPlanRow = React.memo(({
                       </div>
                       {showQuickSelection && (
                         <div className="max-h-[200px] overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
-                        {searchResults
-                          .filter((m: any) => {
-                            if (m.type === "Template") return false;
+                          {searchResults
+                            .filter((m: any) => {
+                              if (m.type === "Template") return false;
 
-                            const nameLower = (m.name || "").toLowerCase();
-                            const labourKeywords = ["labour", "service", "installation", "install", "refixing", "removing", "fixing", "fitting", "work", "charges", "repair", "maintenance"];
-                            const isLabourItem = labourKeywords.some(key => nameLower.includes(key));
-                            const isSupplyItem = !isLabourItem;
+                              const nameLower = (m.name || "").toLowerCase();
+                              const labourKeywords = ["labour", "service", "installation", "install", "refixing", "removing", "fixing", "fitting", "work", "charges", "repair", "maintenance"];
+                              const isLabourItem = labourKeywords.some(key => nameLower.includes(key));
+                              const isSupplyItem = !isLabourItem;
 
-                            // Both checked -> Only show Products
-                            if (includeSupply && includeLabour) {
-                              return m.type === "Product";
-                            }
-                            
-                            // Supply checked -> Only show Materials that are supply items
-                            if (includeSupply && !includeLabour) {
-                              return m.type === "Material" && isSupplyItem;
-                            }
+                              // Both checked -> Only show Products
+                              if (includeSupply && includeLabour) {
+                                return m.type === "Product";
+                              }
 
-                            // Labour checked -> Only show Materials that are labour items
-                            if (!includeSupply && includeLabour) {
-                              return m.type === "Material" && isLabourItem;
-                            }
+                              // Supply checked -> Only show Materials that are supply items
+                              if (includeSupply && !includeLabour) {
+                                return m.type === "Material" && isSupplyItem;
+                              }
 
-                            // Both unchecked -> show both Materials and Products as fallback
-                            return m.type === "Material" || m.type === "Product";
-                          })
-                          .sort((a: any, b: any) => {
-                            // Prioritize Products in the results
-                            if (a.type === 'Product' && b.type !== 'Product') return -1;
-                            if (a.type !== 'Product' && b.type === 'Product') return 1;
-                            return (a.name || "").localeCompare(b.name || "");
-                          })
-                          .slice(0, 15) // Show a few more for better choice
-                          .map((m: any) => {
-                            const isProduct = m.type === 'Product';
-                            return (
-                              <div 
-                                key={`${m.type}-${m.id}`}
-                                className={cn(
-                                  "p-2 hover:bg-indigo-50 cursor-pointer transition-colors flex items-center justify-between group",
-                                  isProduct && "bg-blue-50/30 border-l-2 border-l-blue-400"
-                                )}
-                                onClick={() => {
-                                  selectMaterial(idx, m);
-                                  setMaterialSearch("");
-                                  toast({ title: "Item Updated", description: `Selected ${m.type}: ${m.name}` });
-                                }}
-                              >
-                                <div className="flex flex-col">
-                                  <div className="flex items-center gap-2">
-                                    <span className={cn("font-semibold text-xs text-slate-700", isProduct && "text-blue-700")}>{m.name}</span>
-                                    <Badge variant={isProduct ? "default" : "outline"} className={cn("text-[8px] h-3.5 px-1 uppercase tracking-tighter scale-90", isProduct && "bg-blue-600")}>{m.type}</Badge>
-                                    {m.is_project_pricing && (
-                                      <Badge className="text-[7px] h-3.5 px-1 bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-100 scale-90">★ Project Pricing</Badge>
-                                    )}
-                                    {m.rate && (
-                                      <span className="ml-2 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 rounded">₹{m.rate}</span>
-                                    )}
+                              // Labour checked -> Only show Materials that are labour items
+                              if (!includeSupply && includeLabour) {
+                                return m.type === "Material" && isLabourItem;
+                              }
+
+                              // Both unchecked -> show both Materials and Products as fallback
+                              return m.type === "Material" || m.type === "Product";
+                            })
+                            .sort((a: any, b: any) => {
+                              // Prioritize Products in the results
+                              if (a.type === 'Product' && b.type !== 'Product') return -1;
+                              if (a.type !== 'Product' && b.type === 'Product') return 1;
+                              return (a.name || "").localeCompare(b.name || "");
+                            })
+                            .slice(0, 15) // Show a few more for better choice
+                            .map((m: any) => {
+                              const isProduct = m.type === 'Product';
+                              return (
+                                <div
+                                  key={`${m.type}-${m.id}`}
+                                  className={cn(
+                                    "p-2 hover:bg-indigo-50 cursor-pointer transition-colors flex items-center justify-between group",
+                                    isProduct && "bg-blue-50/30 border-l-2 border-l-blue-400"
+                                  )}
+                                  onClick={() => {
+                                    // Map description from material/product to item_description
+                                    const materialWithDesc = { ...m, item_description: m.description };
+                                    selectMaterial(idx, materialWithDesc);
+                                    setMaterialSearch("");
+                                    toast({ title: "Item Updated", description: `Selected ${m.type}: ${m.name}` });
+                                  }}
+                                >
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center gap-2">
+                                      <span className={cn("font-semibold text-xs text-slate-700", isProduct && "text-blue-700")}>{m.name}</span>
+                                      <Badge variant={isProduct ? "default" : "outline"} className={cn("text-[8px] h-3.5 px-1 uppercase tracking-tighter scale-90", isProduct && "bg-blue-600")}>{m.type}</Badge>
+                                      {m.is_project_pricing && (
+                                        <Badge className="text-[7px] h-3.5 px-1 bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-100 scale-90">★ Project Pricing</Badge>
+                                      )}
+                                      {m.rate && (
+                                        <span className="ml-2 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 rounded">₹{m.rate}</span>
+                                      )}
+                                    </div>
+                                    <span className="text-[9px] text-slate-400 font-medium italic truncate max-w-[400px]">
+                                      {m.category || "Uncategorized"} {m.code ? `• ${m.code}` : ''} {m.unit ? `• Per ${m.unit}` : ''}
+                                    </span>
                                   </div>
-                                  <span className="text-[9px] text-slate-400 font-medium italic truncate max-w-[400px]">
-                                    {m.category || "Uncategorized"} {m.code ? `• ${m.code}` : ''} {m.unit ? `• Per ${m.unit}` : ''}
-                                  </span>
+                                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600">
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </Button>
                                 </div>
-                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600">
-                                  <Plus className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-                )}
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t pt-4">
@@ -671,21 +678,44 @@ const SketchPlanRow = React.memo(({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <DialogTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
+                        <Button
+                          variant="outline"
+                          size="sm"
                           className={cn(
-                            "w-full justify-start text-left font-normal border-dashed border-slate-300 hover:border-indigo-400 p-1.5 flex items-center gap-1", 
-                            isLocked && "pointer-events-auto hover:bg-transparent", 
+                            "w-full justify-start text-left font-normal border-dashed border-slate-300 hover:border-indigo-400 p-1.5 flex items-center gap-1",
+                            isLocked && "pointer-events-auto hover:bg-transparent",
                             isCompact ? "min-h-[24px] text-[9px]" : "min-h-[32px] text-[11px]",
                             item.item_name ? "h-auto" : (isCompact ? "h-6" : "h-8")
-                          )} 
+                          )}
                           disabled={isLocked}
                         >
                           {item.item_name ? (
-                            <span className="line-clamp-2 text-slate-700 font-medium leading-tight whitespace-normal break-words flex-1 pr-1">
-                              {item.item_name}
-                            </span>
+                            <div className="flex-1 pr-1 flex items-center min-w-0">
+                              <span className="line-clamp-2 text-slate-700 font-medium leading-tight whitespace-normal break-words">
+                                {item.item_name}
+                              </span>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button onClick={(e) => e.stopPropagation()} className="ml-1 text-slate-400 hover:text-indigo-500 shrink-0 outline-none">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent align="start" className="w-80 p-3 z-[150]" onClick={(e) => e.stopPropagation()}>
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <h4 className="font-bold text-sm text-slate-800">Description</h4>
+                                    </div>
+                                    <Textarea
+                                      value={item.item_description || ''}
+                                      onChange={(e) => updateItem(idx, 'item_description', e.target.value)}
+                                      placeholder="No description available. Click to add one."
+                                      className="text-sm min-h-[80px] resize-none"
+                                    />
+                                    <p className="text-[10px] text-slate-400">This description will be carried over to the General BOM.</p>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
                           ) : (
                             <span className="text-slate-400 italic font-normal flex-1">+ Add Item</span>
                           )}
@@ -836,7 +866,7 @@ const SketchPlanRow = React.memo(({
                             .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
                             .map((m: any) => {
                               const isSelected = item.material_id === m.id;
-                              
+
                               return (
                                 <CommandItem
                                   key={`${m.type}-${m.id}`}
@@ -1137,12 +1167,12 @@ export default function CreateSketchPlan() {
   const [saving, setSaving] = useState(false);
   const [planImages, setPlanImages] = useState<PlanImage[]>([]);
   const [attachments, setAttachments] = useState<PlanAttachment[]>([]);
-  
+
   // Delta tracking for faster saves
   const [deletedItemIds, setDeletedItemIds] = useState<string[]>([]);
   const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
   const [deletedAttachmentIds, setDeletedAttachmentIds] = useState<string[]>([]);
-  
+
   const [sketchTarget, setSketchTarget] = useState<string>("main"); // "main" or row id/index
   const [openPopoverIdx, setOpenPopoverIdx] = useState<number | null>(null);
   const [openNotesIdx, setOpenNotesIdx] = useState<number | null>(null);
@@ -1223,22 +1253,22 @@ export default function CreateSketchPlan() {
   const handleFileSelect = useCallback(async (file: File) => {
     setImportFile(file);
     const extension = file.name.split(".").pop()?.toLowerCase();
-    
+
     if (extension === "pdf") {
       setIsParsing(true);
       try {
         const pdfjsLib = await loadPdfJs();
         const reader = new FileReader();
-        reader.onload = async function() {
+        reader.onload = async function () {
           try {
             const typedarray = new Uint8Array(this.result as ArrayBuffer);
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
             const allParsedRows: any[][] = [];
-            
+
             for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
               const page = await pdf.getPage(pageNum);
               const textContent = await page.getTextContent();
-              
+
               const items = textContent.items.map((item: any) => ({
                 text: item.str,
                 x: item.transform[4],
@@ -1246,7 +1276,7 @@ export default function CreateSketchPlan() {
                 width: item.width,
                 height: item.height
               }));
-              
+
               // Sort items top-to-bottom, left-to-right
               items.sort((a: any, b: any) => {
                 if (Math.abs(a.y - b.y) < 5) {
@@ -1254,12 +1284,12 @@ export default function CreateSketchPlan() {
                 }
                 return b.y - a.y;
               });
-              
+
               // Group by y coordinate
               const rows: any[][] = [];
               let currentRow: any[] = [];
               let currentY = -1;
-              
+
               for (const item of items) {
                 if (currentRow.length === 0) {
                   currentRow.push(item);
@@ -1275,12 +1305,12 @@ export default function CreateSketchPlan() {
               if (currentRow.length > 0) {
                 rows.push(currentRow);
               }
-              
+
               const parsedRows = rows.map(row => {
                 const cells: string[] = [];
                 let currentCellText = "";
                 let lastX = -1;
-                
+
                 for (const item of row) {
                   if (lastX === -1) {
                     currentCellText = item.text;
@@ -1299,17 +1329,17 @@ export default function CreateSketchPlan() {
                 }
                 return cells;
               }).filter(r => r.length > 0);
-              
+
               allParsedRows.push(...parsedRows);
             }
-            
+
             if (allParsedRows.length === 0) {
               toast({ title: "Import Error", description: "No text data could be extracted from this PDF.", variant: "destructive" });
               setIsParsing(false);
               setImportFile(null);
               return;
             }
-            
+
             // Find headers (the row with most columns, or first row)
             let bestHeaderRowIdx = 0;
             let maxCols = 0;
@@ -1319,14 +1349,14 @@ export default function CreateSketchPlan() {
                 bestHeaderRowIdx = i;
               }
             }
-            
+
             const headers = allParsedRows[bestHeaderRowIdx].map((h, cIdx) => h || `Column ${cIdx + 1}`);
             const rawRows = allParsedRows.slice(bestHeaderRowIdx + 1);
-            
+
             setImportHeaders(headers);
             setImportRows(rawRows);
             setImportFileType("pdf");
-            
+
             const initialMappings = performSmartMapping(headers);
             setImportMappings(initialMappings);
           } catch (err) {
@@ -1355,34 +1385,34 @@ export default function CreateSketchPlan() {
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
-          
+
           if (jsonData.length === 0) {
             toast({ title: "Import Error", description: "The Excel file appears to be empty.", variant: "destructive" });
             setIsParsing(false);
             setImportFile(null);
             return;
           }
-          
+
           // Find headers (first non-empty row)
           let headerRowIdx = 0;
           while (headerRowIdx < jsonData.length && (!jsonData[headerRowIdx] || jsonData[headerRowIdx].length === 0)) {
             headerRowIdx++;
           }
-          
+
           if (headerRowIdx >= jsonData.length) {
             toast({ title: "Import Error", description: "No data rows found in the Excel file.", variant: "destructive" });
             setIsParsing(false);
             setImportFile(null);
             return;
           }
-          
+
           const headers = jsonData[headerRowIdx].map((h: any) => String(h ?? "").trim());
           const rawRows = jsonData.slice(headerRowIdx + 1).filter((r: any) => r && r.length > 0 && r.some((cell: any) => cell !== null && cell !== undefined && cell !== ""));
-          
+
           setImportHeaders(headers);
           setImportRows(rawRows);
           setImportFileType("excel");
-          
+
           const initialMappings = performSmartMapping(headers);
           setImportMappings(initialMappings);
         } catch (err) {
@@ -1474,7 +1504,7 @@ export default function CreateSketchPlan() {
     });
 
     toast({ title: "Import Successful", description: `Successfully imported ${newPlanItems.length} items from ${importFile?.name}.` });
-    
+
     // Reset and Close
     setImportFile(null);
     setImportFileType(null);
@@ -1566,10 +1596,10 @@ export default function CreateSketchPlan() {
   // Check dirty state
   useEffect(() => {
     let lastSaved: any = {};
-    try { lastSaved = JSON.parse(lastSavedRef.current || "{}"); } catch(e) {}
+    try { lastSaved = JSON.parse(lastSavedRef.current || "{}"); } catch (e) { }
 
     let isDirty = false;
-    
+
     if (name !== (lastSaved.name || "")) { isDirty = true; console.log("DIRTY name", name, lastSaved.name); }
     else if (locationStr !== (lastSaved.location || "")) { isDirty = true; console.log("DIRTY location", locationStr, lastSaved.location); }
     else if (planDate !== (lastSaved.plan_date || "")) { isDirty = true; console.log("DIRTY date", planDate, lastSaved.plan_date); }
@@ -1580,13 +1610,13 @@ export default function CreateSketchPlan() {
     else if (attachments.length !== (lastSaved.attachments || []).length) { isDirty = true; console.log("DIRTY attachments len", attachments.length, lastSaved.attachments?.length); }
     else {
       for (let i = 0; i < items.length; i++) {
-         const currentClean = { ...items[i], images: [] };
-         const originalClean = { ...(lastSaved.items || [])[i], images: [] };
-         if (stableStringify(currentClean) !== stableStringify(originalClean)) {
-           isDirty = true;
-           console.log("DIRTY items mismatch at", i, "\nCURRENT:", stableStringify(currentClean), "\nORIGINAL:", stableStringify(originalClean));
-           break;
-         }
+        const currentClean = { ...items[i], images: [] };
+        const originalClean = { ...(lastSaved.items || [])[i], images: [] };
+        if (stableStringify(currentClean) !== stableStringify(originalClean)) {
+          isDirty = true;
+          console.log("DIRTY items mismatch at", i, "\nCURRENT:", stableStringify(currentClean), "\nORIGINAL:", stableStringify(originalClean));
+          break;
+        }
       }
     }
 
@@ -1740,7 +1770,7 @@ export default function CreateSketchPlan() {
     const handleMouseUp = () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
-      
+
       setColumnWidths((prev) => {
         localStorage.setItem("sketch_plan_col_widths", JSON.stringify(prev));
         return prev;
@@ -1754,14 +1784,14 @@ export default function CreateSketchPlan() {
   const autoFitColumn = useCallback((colKey: string) => {
     const cells = document.querySelectorAll(`.col-${colKey}`);
     let maxWidth = 60;
-    
+
     cells.forEach((cell: any) => {
       let contentWidth = 0;
-      
+
       const input = cell.querySelector('input');
       const textarea = cell.querySelector('textarea');
       const select = cell.querySelector('select');
-      
+
       if (input) {
         contentWidth = Math.max(60, (input.value || "").length * 8 + 30);
       } else if (textarea) {
@@ -1775,7 +1805,7 @@ export default function CreateSketchPlan() {
           contentWidth = Math.max(contentWidth, innerSpan.scrollWidth);
         }
       }
-      
+
       if (contentWidth > maxWidth) {
         maxWidth = contentWidth;
       }
@@ -2195,7 +2225,7 @@ export default function CreateSketchPlan() {
             location: p.location || "",
             plan_date: p.plan_date ? new Date(p.plan_date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
             items: mappedItems,
-            images: plImages.map((img: any) => ({ item_id: null, image_url: img.url, name: img.name })),
+            images: plImages.map((img: any) => ({ id: img.id, item_id: null, image_url: img.url, name: img.name })),
             attachments: data.attachments || []
           });
         }
@@ -2298,7 +2328,7 @@ export default function CreateSketchPlan() {
         const data = await res.json();
         toast({ title: "Success", description: data.message });
         setIsDirectToBoqDialogOpen(false);
-        
+
         // 3. Redirect to CreateBoq page with pre-selected project and version
         const targetVerId = data.versionId || selectedTargetVersionId;
         setLocation(`/create-bom?projectId=${selectedTargetProjectId}${targetVerId && targetVerId !== 'new' ? `&versionId=${targetVerId}` : ''}`);
@@ -2659,7 +2689,7 @@ export default function CreateSketchPlan() {
       removedImg = newItems[itemIdx].postImages.splice(imgIdx, 1)[0];
     }
     if (removedImg?.id) {
-       setDeletedImageIds(prev => [...prev, removedImg.id!]);
+      setDeletedImageIds(prev => [...prev, removedImg.id!]);
     }
     setItems(newItems);
   };
@@ -2707,6 +2737,11 @@ export default function CreateSketchPlan() {
     newItems[idx] = { ...newItems[idx] };
     newItems[idx].material_id = material.id;
     newItems[idx].item_name = material.name;
+    if (material.item_description !== undefined) {
+      newItems[idx].item_description = material.item_description;
+    } else if (material.description !== undefined) {
+      newItems[idx].item_description = material.description;
+    }
     newItems[idx].rate = parseFloat(material.rate) || 0;
     if (updateCategory && material.category) newItems[idx].category = material.category;
     if (material.unit) {
@@ -2821,13 +2856,13 @@ export default function CreateSketchPlan() {
     try {
       // Delta-based saving: only send what changed
       let lastSaved: any = {};
-      try { lastSaved = JSON.parse(lastSavedRef.current || "{}"); } catch(e) {}
+      try { lastSaved = JSON.parse(lastSavedRef.current || "{}"); } catch (e) { }
 
       // Identify modified items
       const modifiedItems = items.map((item, idx) => ({ ...item, sort_order: idx })).filter(item => {
         const original = (lastSaved.items || []).find((it: any) => it.id === item.id);
         if (!original) return true; // New item
-        
+
         // Include sort_order in comparison
         const currentClean = { ...item, images: [] };
         const originalClean = { ...original, images: [] };
@@ -3516,54 +3551,54 @@ export default function CreateSketchPlan() {
 
   const LayoutComponent = isSupplier ? SupplierLayout : Layout;
 
-    // Real-time Presence
-    const [activeUsers, setActiveUsers] = useState<string[]>([]);
-    const avatarKey = `user_avatar_${user?.id || user?.username || 'Guest'}`;
-    const [myAvatar, setMyAvatar] = useState<string | null>(localStorage.getItem(avatarKey) || null);
+  // Real-time Presence
+  const [activeUsers, setActiveUsers] = useState<string[]>([]);
+  const avatarKey = `user_avatar_${user?.id || user?.username || 'Guest'}`;
+  const [myAvatar, setMyAvatar] = useState<string | null>(localStorage.getItem(avatarKey) || null);
 
-    const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        if (file.size > 1024 * 1024) { // 1MB limit for WS performance
-          toast({ title: "Image too large", description: "Please select an image smaller than 1MB", variant: "destructive" });
-          return;
-        }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result as string;
-          setMyAvatar(base64);
-          localStorage.setItem(avatarKey, base64);
-          toast({ title: "Avatar Updated", description: "Refresh to broadcast your new look!" });
-        };
-        reader.readAsDataURL(file);
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 1024 * 1024) { // 1MB limit for WS performance
+        toast({ title: "Image too large", description: "Please select an image smaller than 1MB", variant: "destructive" });
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setMyAvatar(base64);
+        localStorage.setItem(avatarKey, base64);
+        toast({ title: "Avatar Updated", description: "Refresh to broadcast your new look!" });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  useEffect(() => {
+    if (!currentId) return;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws-presence`);
+    const displayName = user?.fullName || user?.username || 'Guest';
+    const userPayload = myAvatar ? `${displayName}:::${myAvatar}` : displayName;
+
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'join', planId: currentId, user: userPayload }));
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.type === 'presence' && data.planId === currentId) {
+        const others = data.users.filter((u: string) => {
+          const [name] = u.split(':::');
+          return name !== displayName;
+        });
+        setActiveUsers(others);
       }
     };
-
-    useEffect(() => {
-      if (!currentId) return;
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws-presence`);
-      const displayName = user?.fullName || user?.username || 'Guest';
-      const userPayload = myAvatar ? `${displayName}:::${myAvatar}` : displayName;
-
-      ws.onopen = () => ws.send(JSON.stringify({ type: 'join', planId: currentId, user: userPayload }));
-      ws.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        if (data.type === 'presence' && data.planId === currentId) {
-          const others = data.users.filter((u: string) => {
-            const [name] = u.split(':::');
-            return name !== displayName;
-          });
-          setActiveUsers(others);
-        }
-      };
-      return () => ws.close();
-    }, [currentId, user, myAvatar]);
+    return () => ws.close();
+  }, [currentId, user, myAvatar]);
 
   return (
     <LayoutComponent {...(isSupplier ? { shopName: "", shopLocation: "", shopApproved: true } : {})}>
       <div className="max-w-7xl mx-auto space-y-2 pb-20 relative">
-        
+
         {initialLoading ? (
           <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
             <div className="relative">
@@ -3602,7 +3637,7 @@ export default function CreateSketchPlan() {
                       let hash = 0;
                       for (let k = 0; k < userName.length; k++) hash = userName.charCodeAt(k) + ((hash << 5) - hash);
                       const colorClass = colors[Math.abs(hash) % colors.length];
-                      
+
                       return (
                         <TooltipProvider key={i}>
                           <Tooltip>
@@ -3620,7 +3655,7 @@ export default function CreateSketchPlan() {
                         </TooltipProvider>
                       );
                     })}
-                    
+
                     {/* Self Avatar / Upload */}
                     <div className="relative group ml-4">
                       <label className="cursor-pointer block">
@@ -3938,7 +3973,7 @@ export default function CreateSketchPlan() {
                             <span className="font-bold text-xs text-slate-700 uppercase tracking-wider">Visible Columns</span>
                             <span className="text-[10px] text-slate-400 font-medium">({Object.values(columnVisibility).filter(Boolean).length}/{Object.keys(columnVisibility).length})</span>
                           </div>
-                          
+
                           <div className="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
                             {[
                               { key: "sNo", label: "S.No (#)" },
@@ -3966,19 +4001,19 @@ export default function CreateSketchPlan() {
                               </div>
                             ))}
                           </div>
-                          
+
                           <div className="border-t pt-2 flex flex-col gap-1.5">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={showAllColumns}
                               className="h-7 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 justify-center w-full"
                             >
                               Show All Columns
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={resetDefaultLayout}
                               className="h-7 text-[10px] font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-700 justify-center w-full"
                             >
@@ -4337,47 +4372,47 @@ export default function CreateSketchPlan() {
                               idx={items.indexOf(item)} // Keep original items index for reordering logic
                               displayIdx={globalIdx + 1}
                               itemsLength={items.length}
-                            isLocked={isLocked || userRole === "supplier"}
-                            isFiltering={isFiltering}
-                            isCompact={isCompact}
-                            columnVisibility={columnVisibility}
-                            updateItem={updateItem}
-                            removeItem={removeItem}
-                            moveItemToPosition={moveItemToPosition}
-                            selectMaterial={selectMaterial}
-                            searchResults={searchResults}
-                            searching={searching}
-                            loadMaterials={loadMaterials}
-                            materialSearch={materialSearch}
-                            setMaterialSearch={setMaterialSearch}
-                            openPopoverIdx={openPopoverIdx}
-                            setOpenPopoverIdx={setOpenPopoverIdx}
-                            renameRowImage={renameRowImage}
-                            removeRowImage={removeRowImage}
-                            handleRowImageUpload={handleRowImageUpload}
-                            setPreviewImage={setPreviewImage}
-                            lastSketchItemIdxRef={lastSketchItemIdxRef}
-                            setSketchTarget={setSketchTarget}
-                            setSketchInitialData={setSketchInitialData}
-                            toast={toast}
-                            setSketchDialogOpen={setSketchDialogOpen}
-                            isSelected={selectedItemIds.has(item.id)}
-                            toggleSelect={toggleSelectItem}
-                            userRole={userRole}
-                            onImageDragStart={handleImageDragStart}
-                            onImageDrop={handleImageDrop}
-                            addDimension={addDimension}
-                            removeDimension={removeDimension}
-                            updateDimension={updateDimension}
-                            cloneItem={cloneItem}
-                            categories={categories}
-                            includeSupply={includeSupply}
-                            setIncludeSupply={setIncludeSupply}
-                            includeLabour={includeLabour}
-                            setIncludeLabour={setIncludeLabour}
-                            openNotesIdx={openNotesIdx}
-                            setOpenNotesIdx={setOpenNotesIdx}
-                          />
+                              isLocked={isLocked || userRole === "supplier"}
+                              isFiltering={isFiltering}
+                              isCompact={isCompact}
+                              columnVisibility={columnVisibility}
+                              updateItem={updateItem}
+                              removeItem={removeItem}
+                              moveItemToPosition={moveItemToPosition}
+                              selectMaterial={selectMaterial}
+                              searchResults={searchResults}
+                              searching={searching}
+                              loadMaterials={loadMaterials}
+                              materialSearch={materialSearch}
+                              setMaterialSearch={setMaterialSearch}
+                              openPopoverIdx={openPopoverIdx}
+                              setOpenPopoverIdx={setOpenPopoverIdx}
+                              renameRowImage={renameRowImage}
+                              removeRowImage={removeRowImage}
+                              handleRowImageUpload={handleRowImageUpload}
+                              setPreviewImage={setPreviewImage}
+                              lastSketchItemIdxRef={lastSketchItemIdxRef}
+                              setSketchTarget={setSketchTarget}
+                              setSketchInitialData={setSketchInitialData}
+                              toast={toast}
+                              setSketchDialogOpen={setSketchDialogOpen}
+                              isSelected={selectedItemIds.has(item.id)}
+                              toggleSelect={toggleSelectItem}
+                              userRole={userRole}
+                              onImageDragStart={handleImageDragStart}
+                              onImageDrop={handleImageDrop}
+                              addDimension={addDimension}
+                              removeDimension={removeDimension}
+                              updateDimension={updateDimension}
+                              cloneItem={cloneItem}
+                              categories={categories}
+                              includeSupply={includeSupply}
+                              setIncludeSupply={setIncludeSupply}
+                              includeLabour={includeLabour}
+                              setIncludeLabour={setIncludeLabour}
+                              openNotesIdx={openNotesIdx}
+                              setOpenNotesIdx={setOpenNotesIdx}
+                            />
                           );
                         })}
                       </Reorder.Group>
@@ -5118,12 +5153,12 @@ export default function CreateSketchPlan() {
               Convert all items from this sketch plan directly into a Project BOM.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-6 space-y-6">
             <div className="space-y-3">
               <Label className="text-xs font-bold uppercase text-slate-500">Target Project</Label>
-              <Select 
-                value={selectedTargetProjectId} 
+              <Select
+                value={selectedTargetProjectId}
                 onValueChange={(val) => {
                   setSelectedTargetProjectId(val);
                   loadTargetVersions(val);
@@ -5143,8 +5178,8 @@ export default function CreateSketchPlan() {
 
             <div className="space-y-3">
               <Label className="text-xs font-bold uppercase text-slate-500">Target BOM Version</Label>
-              <Select 
-                value={selectedTargetVersionId} 
+              <Select
+                value={selectedTargetVersionId}
                 onValueChange={setSelectedTargetVersionId}
                 disabled={selectedTargetProjectId === "none" || loadingVersions}
               >
@@ -5184,8 +5219,8 @@ export default function CreateSketchPlan() {
             <Button variant="outline" onClick={() => setIsDirectToBoqDialogOpen(false)} disabled={processingDirectToBoq}>
               Cancel
             </Button>
-            <Button 
-              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 px-6" 
+            <Button
+              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 px-6"
               onClick={handleDirectToBoq}
               disabled={processingDirectToBoq || selectedTargetProjectId === "none"}
             >
@@ -5435,11 +5470,11 @@ export default function CreateSketchPlan() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <BoqPreviewModal 
-        open={isBoqPreviewOpen} 
-        onClose={() => setIsBoqPreviewOpen(false)} 
-        planId={currentId || ""} 
-        planName={name} 
+      <BoqPreviewModal
+        open={isBoqPreviewOpen}
+        onClose={() => setIsBoqPreviewOpen(false)}
+        planId={currentId || ""}
+        planName={name}
       />
     </LayoutComponent>
   );

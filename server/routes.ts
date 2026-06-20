@@ -33,6 +33,35 @@ export async function registerRoutes(
 ): Promise<Server> {
   const { archiveService } = await import("./archive_service");
 
+  // Voice translation endpoint
+  app.post('/api/translate-voice', async (req: Request, res: Response) => {
+    try {
+      const { text } = req.body;
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY || ''}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are an assistant that corrects grammar and translates speech to English. Your output should only be the finalized English text without any additional commentary. If the text is in Tamil, translate it to professional English. If it is in English, correct the grammar.' },
+            { role: 'user', content: text }
+          ]
+        })
+      });
+      if (!response.ok) {
+        throw new Error('Failed to translate');
+      }
+      const data = await response.json();
+      res.json({ translatedText: data.choices[0].message.content.trim() });
+    } catch (err) {
+      console.error('Translation error:', err);
+      res.status(500).json({ error: 'Translation failed' });
+    }
+  });
+
   // Sketch Plan Routes
   await registerSketchRoutes(app);
 
@@ -1031,6 +1060,7 @@ export async function registerRoutes(
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS user_task_status VARCHAR(50) DEFAULT 'unassigned'`);
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS category TEXT`);
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS item_description TEXT`);
     await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS version_number INTEGER DEFAULT 1`);
     await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS parent_plan_id VARCHAR(100)`);
     await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS version_status VARCHAR(50) DEFAULT 'draft'`);
@@ -2473,32 +2503,33 @@ export async function registerRoutes(
         // Query materials table
         const materialsRes = hasQuery
           ? await query(`
-              SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, m.is_project_pricing, 'Material' as type 
+              SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, m.is_project_pricing, 'Material' as type, null as description
               FROM materials m 
               LEFT JOIN material_templates t ON m.template_id = t.id 
               WHERE (m.name ILIKE $1 OR REPLACE(m.name, ' ', '') ILIKE $2
                  OR COALESCE(m.code,'') ILIKE $1 OR COALESCE(m.category,'') ILIKE $1)
                  AND m.approved IS TRUE
               ORDER BY m.name ASC LIMIT 100`, [searchPattern, compactPattern])
-          : await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, m.is_project_pricing, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.approved IS TRUE ORDER BY m.name ASC LIMIT 100`);
+          : await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, m.is_project_pricing, 'Material' as type, null as description FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.approved IS TRUE ORDER BY m.name ASC LIMIT 100`);
         materialsRows = materialsRes.rows || [];
 
         // Query templates table
         const templatesRes = hasQuery
           ? await query(`
-              SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type 
+              SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type, null as description 
               FROM material_templates 
               WHERE name ILIKE $1 OR REPLACE(name, ' ', '') ILIKE $2
                  OR COALESCE(code,'') ILIKE $1 OR COALESCE(category,'') ILIKE $1
               ORDER BY name ASC LIMIT 100`, [searchPattern, compactPattern])
-          : await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates ORDER BY name ASC LIMIT 100`);
+          : await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type, null as description FROM material_templates ORDER BY name ASC LIMIT 100`);
         templatesRows = templatesRes.rows || [];
 
         // Query products table - only approved products with at least one approved config
         // JOIN with material_subcategories and material_categories to get the parent category
         const productsRes = hasQuery
           ? await query(`
-              SELECT DISTINCT ON (p.name) p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(c.name, p.subcategory, '') as category, null as image, 'Product' as type 
+              SELECT DISTINCT ON (p.name) p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(c.name, p.subcategory, '') as category, null as image, 'Product' as type,
+              (SELECT pa.description FROM product_approvals pa WHERE pa.product_id = p.id AND pa.status = 'approved' ORDER BY pa.created_at DESC LIMIT 1) as description
               FROM products p 
               LEFT JOIN (
                 SELECT DISTINCT ON (LOWER(TRIM(name))) name, category
@@ -2512,7 +2543,8 @@ export async function registerRoutes(
                 )
               ORDER BY p.name ASC LIMIT 100`, [searchPattern, compactPattern])
           : await query(`
-              SELECT DISTINCT ON (p.name) p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(c.name, p.subcategory, '') as category, null as image, 'Product' as type 
+              SELECT DISTINCT ON (p.name) p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(c.name, p.subcategory, '') as category, null as image, 'Product' as type,
+              (SELECT pa.description FROM product_approvals pa WHERE pa.product_id = p.id AND pa.status = 'approved' ORDER BY pa.created_at DESC LIMIT 1) as description
               FROM products p 
               LEFT JOIN (
                 SELECT DISTINCT ON (LOWER(TRIM(name))) name, category

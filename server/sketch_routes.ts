@@ -199,13 +199,12 @@ export async function registerSketchRoutes(app: Express) {
             const srcItem = srcItems[i];
             const newItemId = `ski-${Date.now()}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await client.query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order, item_description)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
               [
                 newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, srcItem.material_id, srcItem.dimension_unit || 'feet', srcItem.assigned_vendor_id || null, srcItem.vendor_name || null,
                 srcItem.dimensions ? JSON.stringify(srcItem.dimensions) : null,
-                srcItem.assigned_user_id || null, srcItem.assigned_user_name || null, srcItem.user_task_status || 'unassigned', srcItem.category || null, srcItem.sort_order
-              ]
+                srcItem.assigned_user_id || null, srcItem.assigned_user_name || null, srcItem.user_task_status || 'unassigned', srcItem.category || null, srcItem.sort_order, srcItem.item_description]
             );
 
             const srcItemImagesRes = await client.query("SELECT * FROM sketch_plan_images WHERE plan_id = $1 AND item_id = $2", [id, srcItem.id]);
@@ -284,14 +283,13 @@ export async function registerSketchRoutes(app: Express) {
           const safeVendorId = srcItem.assigned_vendor_id || null;
 
           await client.query(
-            `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+            `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order, item_description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
             [
               newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, safeMatId, srcItem.dimension_unit || 'feet', safeVendorId, srcItem.vendor_name || null,
               srcItem.dimensions ? JSON.stringify(srcItem.dimensions) : null,
               srcItem.assigned_user_id || null, srcItem.assigned_user_name || null, srcItem.user_task_status || 'unassigned',
-              srcItem.category || null, srcItem.sort_order
-            ]
+              srcItem.category || null, srcItem.sort_order, srcItem.item_description]
           );
 
           const srcItemImagesRes = await client.query("SELECT * FROM sketch_plan_images WHERE plan_id = $1 AND item_id = $2", [id, srcItem.id]);
@@ -457,8 +455,8 @@ export async function registerSketchRoutes(app: Express) {
           const itemId = `ski-${`${Date.now()}`.padStart(15, '0')}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
           item.id = itemId; // Sync ID for image mapping
           return client.query(
-            `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+            `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order, item_description) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
             [
               itemId, id, item.item_name, item.description,
               parseSafeNumeric(item.length), parseSafeNumeric(item.width), parseSafeNumeric(item.height),
@@ -467,7 +465,8 @@ export async function registerSketchRoutes(app: Express) {
               item.assigned_vendor_id || null, item.vendor_name || null,
               item.dimensions ? JSON.stringify(item.dimensions) : null,
               item.assigned_user_id || null, item.assigned_user_name || null,
-              item.user_task_status || 'unassigned', item.category || null, i
+              item.user_task_status || 'unassigned', item.category || null, i,
+              item.item_description || null
             ]
           );
         }));
@@ -651,9 +650,9 @@ export async function registerSketchRoutes(app: Express) {
             `INSERT INTO sketch_plan_items (
               id, plan_id, item_name, description, length, width, height, qty, unit, 
               remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, 
-              dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order
+              dimensions, assigned_user_id, assigned_user_name, user_task_status, category, sort_order, item_description
             ) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
              ON CONFLICT (id) DO UPDATE SET 
                item_name = EXCLUDED.item_name, description = EXCLUDED.description,
                length = EXCLUDED.length, width = EXCLUDED.width, height = EXCLUDED.height,
@@ -662,7 +661,7 @@ export async function registerSketchRoutes(app: Express) {
                assigned_vendor_id = EXCLUDED.assigned_vendor_id, vendor_name = EXCLUDED.vendor_name,
                dimensions = EXCLUDED.dimensions, assigned_user_id = EXCLUDED.assigned_user_id,
                assigned_user_name = EXCLUDED.assigned_user_name, user_task_status = EXCLUDED.user_task_status,
-               category = EXCLUDED.category, sort_order = EXCLUDED.sort_order`,
+               category = EXCLUDED.category, sort_order = EXCLUDED.sort_order, item_description = EXCLUDED.item_description`,
             [
               itemId, id, item.item_name, item.description,
               parseSafeNumeric(item.length), parseSafeNumeric(item.width), parseSafeNumeric(item.height), parseSafeNumeric(item.qty),
@@ -671,15 +670,14 @@ export async function registerSketchRoutes(app: Express) {
               item.dimensions ? JSON.stringify(item.dimensions) : null,
               item.assigned_user_id || null, item.assigned_user_name || null,
               item.user_task_status || 'unassigned', item.category || null,
-              item.sort_order || 0
-            ]
+              item.sort_order || 0, item.item_description || null]
           );
 
           if (item.images && Array.isArray(item.images)) {
             for (const img of item.images) {
               const rawImgUrl = typeof img === "string" ? img : (img.image_url || img.url);
               const imgName = typeof img === "string" ? null : (img.name || img.image_name);
-              const imgId = (img.id && img.id.startsWith('img-')) ? img.id : `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+              const imgId = img.id ? img.id : `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
               const resolvedData = getResolvedData(rawImgUrl);
 
               if (resolvedData) {
@@ -701,7 +699,7 @@ export async function registerSketchRoutes(app: Express) {
           if (img.item_id) continue;
           const rawImgUrl = typeof img === "string" ? img : (img.image_url || img.url);
           const imgName = typeof img === "string" ? null : (img.name || img.image_name);
-          const imgId = (img.id && img.id.startsWith('img-')) ? img.id : `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const imgId = img.id ? img.id : `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const resolvedData = getResolvedData(rawImgUrl);
 
           if (resolvedData) {
@@ -718,7 +716,7 @@ export async function registerSketchRoutes(app: Express) {
       // 4. Upsert attachments
       if (attachments && Array.isArray(attachments)) {
         for (const att of attachments) {
-          const attId = (att.id && att.id.startsWith('att-')) ? att.id : `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const attId = att.id ? att.id : `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const rawAttUrl = att.file_url || att.url;
           const resolvedData = getResolvedData(rawAttUrl);
 

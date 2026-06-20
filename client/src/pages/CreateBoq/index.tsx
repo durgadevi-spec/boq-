@@ -545,7 +545,8 @@ export default function CreateBom() {
         });
 
         const dims = [item.length, item.width, item.height].filter(Boolean).filter(d => d !== "0" && d !== "").join(' x ');
-        const desc = `${item.description || ''} ${dims ? `(Dims: ${dims} ${item.dimension_unit || ''})` : ''}`.trim();
+        const itemDesc = item.item_description || item.description || '';
+        const desc = `${itemDesc} ${dims ? `(Dims: ${dims} ${item.dimension_unit || ''})` : ''}`.trim();
         // Resolve qty from sketch template item - try all possible field names
         const rawQty = item.qty ?? item.quantity ?? item.qty_required ?? item.requiredQty ?? item.targetRequiredQty;
         const qty = (rawQty !== null && rawQty !== undefined && Number(rawQty) > 0) ? Number(rawQty) : 1;
