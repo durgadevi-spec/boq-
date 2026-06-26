@@ -1,6 +1,9 @@
+import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
+// @ts-ignore
 if (!process.env.DATABASE_URL) {
+  // @ts-ignore
   throw new Error("DATABASE_URL is not set. Please configure it in your env.");
 }
 
@@ -16,6 +19,7 @@ export default defineConfig({
 
   // Database connection
   dbCredentials: {
+    // @ts-ignore
     url: process.env.DATABASE_URL,
   },
 

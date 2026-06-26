@@ -71,7 +71,6 @@ const poolConfig: any = {
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
   connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection fails
   maxUses: 7500, // Close the connection after 7500 uses (prevents memory leaks)
-  statement_timeout: 60000, // 60 second statement timeout (increased from default)
   query_timeout: 60000, // 60 second query timeout
 };
 
