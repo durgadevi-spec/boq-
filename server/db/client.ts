@@ -61,7 +61,13 @@ if (envPath && fs.existsSync(envPath)) {
   }
 }
 
-const connectionString = process.env.DATABASE_URL || "postgres://boq_admin:boq_admin_pass@localhost:5432/boq";
+// Replace port 6543 (Supavisor pooler) with 5432 (direct connection) to fix unexpected termination errors
+let connectionString = process.env.DATABASE_URL || "postgres://boq_admin:boq_admin_pass@localhost:5432/boq";
+if (connectionString.includes("supabase.co:6543")) {
+  connectionString = connectionString.replace(":6543", ":5432");
+  console.log("[db-client] Automatically switching Supabase port from 6543 to 5432 for stability");
+}
+
 console.log("[db-client] Connecting to:", connectionString.includes("supabase") ? "SUPABASE ✓" : "LOCAL ✗");
 
 // For Supabase connections, we need to accept self-signed certificates
