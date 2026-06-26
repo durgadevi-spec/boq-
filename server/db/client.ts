@@ -78,8 +78,9 @@ console.log("[db-client] Connecting to:", connectionString.includes("supabase") 
 const poolConfig: any = {
   connectionString,
   max: 40, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  idleTimeoutMillis: 5000, // Close idle clients very quickly (5s) because Supabase drops them aggressively
   connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection fails
+  keepAlive: true, // Crucial for Supabase: sends TCP keep-alive to prevent dropped connections
   maxUses: 7500, // Close the connection after 7500 uses (prevents memory leaks)
   query_timeout: 60000, // 60 second query timeout
 };
