@@ -61,11 +61,15 @@ if (envPath && fs.existsSync(envPath)) {
   }
 }
 
-// Replace port 6543 (Supavisor pooler) with 5432 (direct connection) to fix unexpected termination errors
+// Add pgbouncer=true for Supabase connection pooler if using port 6543, or switch to 5432
 let connectionString = process.env.DATABASE_URL || "postgres://boq_admin:boq_admin_pass@localhost:5432/boq";
-if (connectionString.includes("supabase.co:6543")) {
-  connectionString = connectionString.replace(":6543", ":5432");
-  console.log("[db-client] Automatically switching Supabase port from 6543 to 5432 for stability");
+if (connectionString.includes("6543")) {
+  if (!connectionString.includes("pgbouncer=true")) {
+    connectionString += connectionString.includes("?") ? "&pgbouncer=true" : "?pgbouncer=true";
+    console.log("[db-client] Added pgbouncer=true to connection string for Supabase pooler");
+  }
+} else if (connectionString.includes("supabase.co")) {
+  console.log("[db-client] Using direct Supabase connection on port 5432");
 }
 
 console.log("[db-client] Connecting to:", connectionString.includes("supabase") ? "SUPABASE ✓" : "LOCAL ✗");
