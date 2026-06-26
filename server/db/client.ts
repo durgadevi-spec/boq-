@@ -67,9 +67,9 @@ console.log("[db-client] Connecting to:", connectionString.includes("supabase") 
 // For Supabase connections, we need to accept self-signed certificates
 const poolConfig: any = {
   connectionString,
-  max: 10, // Maximum number of clients in the pool
+  max: 40, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection fails
+  connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection fails
   maxUses: 7500, // Close the connection after 7500 uses (prevents memory leaks)
   query_timeout: 60000, // 60 second query timeout
 };
