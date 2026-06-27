@@ -874,13 +874,13 @@ export async function registerRoutes(
 
   // Ensure material_submissions table has required columns
   try {
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
   } catch (err: unknown) {
     console.warn(
       "[migrations] ensure material_submissions columns failed (continuing):",
@@ -891,9 +891,9 @@ export async function registerRoutes(
 
   // Ensure shops table has vendor_category column
   try {
-    
-    
-    
+
+
+
   } catch (err: unknown) {
     console.warn(
       "[migrations] ensure shops columns failed (continuing):",
@@ -1090,8 +1090,8 @@ export async function registerRoutes(
 
   // Migrate boq_items to support version_id and sort_order
   try {
-    
-    
+
+
     console.log("[db] boq_items version_id and sort_order columns ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1424,7 +1424,7 @@ export async function registerRoutes(
 
   // Ensure boq_items has a user_added flag (only items explicitly saved via Add Product)
   try {
-    
+
     console.log("[db] boq_items user_added column ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1435,7 +1435,7 @@ export async function registerRoutes(
 
   // Ensure boq_items has a precomputed computed_value column for fast project value aggregation
   try {
-    
+
     console.log("[db] boq_items computed_value column ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1446,7 +1446,7 @@ export async function registerRoutes(
 
   // Ensure material_templates table has vendor_category, tax_code_type, and tax_code_value columns
   try {
-    
+
     // Ensure column exists; then ensure the CHECK constraint allows NULL or the allowed values
     // Drop old constraint if it exists (safely), then add a correct one that allows NULL
     try {
@@ -1455,13 +1455,13 @@ export async function registerRoutes(
       // ignore
     }
     await query(`ALTER TABLE material_templates ADD CONSTRAINT material_templates_tax_code_type_check CHECK (tax_code_type IS NULL OR tax_code_type IN ('hsn', 'sac'))`);
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
     console.log("[db] material_templates/submissions hsn/sac/image/metaltype/brandname/dimensions/finishtype columns ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1794,8 +1794,8 @@ export async function registerRoutes(
 
       // ✅ NEW: ensure approval columns exist + mark supplier as pending (DB controls approval)
       try {
-        
-        
+
+
 
         const approvedValue = role === "supplier" ? "pending" : "approved";
         await query(`UPDATE users SET approved = $2 WHERE id = $1`, [
@@ -2037,8 +2037,8 @@ export async function registerRoutes(
     requireRole("admin"),
     async (_req: Request, res: Response) => {
       try {
-        
-        
+
+
 
         const result = await query(
           `SELECT id, username, role, approved, approval_reason
@@ -2064,8 +2064,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
 
-        
-        
+
+
 
         const result = await query(
           `UPDATE users
@@ -2098,8 +2098,8 @@ export async function registerRoutes(
         const id = req.params.id;
         const reason = req.body?.reason || null;
 
-        
-        
+
+
 
         const result = await query(
           `UPDATE users
@@ -2133,8 +2133,8 @@ export async function registerRoutes(
     requireRole("admin"),
     async (_req: Request, res: Response) => {
       try {
-        
-        
+
+
 
         // Only PENDING suppliers (so the page won't show approved ones)
         const result = await query(
@@ -2161,8 +2161,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
 
-        
-        
+
+
 
         const result = await query(
           `UPDATE users
@@ -2195,8 +2195,8 @@ export async function registerRoutes(
         const id = req.params.id;
         const reason = req.body?.reason || null;
 
-        
-        
+
+
 
         const result = await query(
           `UPDATE users
@@ -2767,8 +2767,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
         // ensure approved column exists
-        
-        
+
+
         const result = await query(
           "UPDATE shops SET approved = true, approval_reason = NULL WHERE id = $1 RETURNING *",
           [id],
@@ -2991,8 +2991,8 @@ export async function registerRoutes(
     async (req, res) => {
       try {
         const id = req.params.id;
-        
-        
+
+
         const result = await query(
           "UPDATE materials SET approved = true, approval_reason = NULL WHERE id = $1 RETURNING *",
           [id],
@@ -3013,8 +3013,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
         const reason = req.body?.reason || null;
-        
-        
+
+
         const result = await query(
           "UPDATE materials SET approved = false, approval_reason = $2 WHERE id = $1 RETURNING *",
           [id, reason],
@@ -9030,7 +9030,7 @@ export async function registerRoutes(
       try {
         const { status } = req.query;
         let queryStr = "";
-        
+
         if (status === "approved") {
           queryStr = `
            SELECT p.*, pr.name as live_product_name,
@@ -9698,16 +9698,28 @@ export async function registerRoutes(
               const engineLines = tableData.materialLines.map((l: any) => {
                 const baseQty = Number(l.baseQty || l.qty || 0);
                 const applyR = l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : (l.applyRounding !== undefined ? Boolean(l.applyRounding) : true);
+                
+                const applyW = l.applyWastage !== false;
+                let defaultW = 0;
+                if (tableData.configBasis?.wastagePctDefault !== undefined) {
+                    defaultW = Number(tableData.configBasis.wastagePctDefault) / 100;
+                }
+                const rowWRaw = l.wastagePct !== undefined ? Number(l.wastagePct) : NaN;
+                const rowW = !isNaN(rowWRaw) ? rowWRaw / 100 : undefined;
+                const wastagePctUsed = applyW ? (rowW !== undefined ? rowW : defaultW) : 0;
+                const wastageQty = baseQty * wastagePctUsed;
+                
+                const isFrozenQty = (l.freezeAndEdit === true || l.freezeAndEdit === "true" || l.freezeAndEdit === 1 || l.freeze_and_edit === true || l.freeze_and_edit === "true" || l.freeze_and_edit === 1);
 
-                // Excel/BOQ Logic: Round up at basis, then scale, then round off for PO
-                // Per instructions, exclude wastage for PO (use baseQty directly)
-                const roundedQtyAtBasis = applyR ? Math.ceil(baseQty) : baseQty;
+                // Include wastage so PO matches BOM exactly
+                const effectiveQtyAtBasis = baseQty + wastageQty;
+                const roundedQtyAtBasis = applyR ? Math.ceil(effectiveQtyAtBasis) : effectiveQtyAtBasis;
                 const computedPerUnitQty = base > 0 ? roundedQtyAtBasis / base : 0;
                 // Use l.perUnitQty if it exists (allows respecting edits from Generate PO / BOM Edit screen)
                 const perUnitQty = l.perUnitQty !== undefined ? Number(l.perUnitQty) : computedPerUnitQty;
 
-                const scaledQty = Number((perUnitQty * target).toFixed(2));
-                const roundOffQty = applyR ? Math.ceil(scaledQty) : scaledQty;
+                const scaledQty = isFrozenQty ? roundedQtyAtBasis : Number((perUnitQty * target).toFixed(2));
+                const roundOffQty = isFrozenQty ? roundedQtyAtBasis : (applyR ? Math.ceil(scaledQty) : scaledQty);
 
                 const sRate = Number(l.supply_rate || l.supplyRate || 0);
                 const iRate = Number(l.install_rate || l.installRate || 0);

@@ -284,14 +284,18 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
 
   if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
     isEngineBased = true;
-    const boqResult = computeBoq({ ...tableData.configBasis, wastagePctDefault: 0 }, tableData.materialLines.map((l: any) => ({ ...l, applyWastage: false })), tableData.targetRequiredQty);
+    const boqResult = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
     const computedLines = boqResult.computed.map((line: any, idx: number) => {
       const itemKey = `${boqItem.id}-engine-${idx}`;
       const qty = Number(getEditedValue(itemKey, "qty", line.perUnitQty));
       const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
       const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
       const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
-      const reqQty = Number((qty * (tableData.targetRequiredQty || 1)).toFixed(2));
+      
+      const isFrozenQty = (line.freezeAndEdit === true || line.freezeAndEdit === "true" || line.freezeAndEdit === 1 || line.freeze_and_edit === true || line.freeze_and_edit === "true" || line.freeze_and_edit === 1);
+      const base = Number(tableData.configBasis?.baseRequiredQty) || 1;
+      const reqQty = isFrozenQty ? Number((qty * base).toFixed(2)) : Number((qty * (tableData.targetRequiredQty || 1)).toFixed(2));
+      
       const applyR = line.apply_rounding !== undefined ? Boolean(line.apply_rounding) : (line.applyRounding !== undefined ? Boolean(line.applyRounding) : true);
       const roundOff = applyR ? Math.ceil(reqQty) : reqQty;
       return {
