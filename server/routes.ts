@@ -176,7 +176,6 @@ export async function registerRoutes(
   // ==================== END PRESENCE ====================
 
   // Ensure Column Exists with DEFAULT false, and sync current state to prevent sorting bugs (NULLS vs FALSE)
-  await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_last_final BOOLEAN DEFAULT FALSE");
   await query("UPDATE boq_versions SET is_last_final = FALSE WHERE is_last_final IS NULL");
 
   // Performance indexes for BOM/BOQ
@@ -481,7 +480,6 @@ export async function registerRoutes(
 
   // Ensure email_groups table has is_client_group column (migration for older schemas)
   try {
-    await query(`ALTER TABLE email_groups ADD COLUMN IF NOT EXISTS is_client_group BOOLEAN DEFAULT FALSE`);
     console.log("[migration] email_groups.is_client_group column ensured");
   } catch (err: unknown) {
     console.warn("[migration] Could not add is_client_group column to email_groups:", (err as any)?.message || err);
@@ -529,11 +527,6 @@ export async function registerRoutes(
     `);
     // Migration for existing tables that might have been created with UUID or missing columns
     await query(`ALTER TABLE bom_comments ALTER COLUMN version_id TYPE VARCHAR(100)`);
-    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS visible_to TEXT[]`);
-    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS read_by TEXT[] DEFAULT '{}'`);
-    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS parent_id UUID`);
-    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS reply_to_text TEXT`);
-    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS reply_to_user TEXT`);
     await query(`CREATE INDEX IF NOT EXISTS idx_bom_comments_version_id ON bom_comments (version_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_bom_comments_itemId ON bom_comments (item_id)`);
 
@@ -594,15 +587,6 @@ export async function registerRoutes(
     console.log("[migrations] sketch_plan_locks table ensured");
 
     // Ensure boq_versions columns exist for BOM vs BOQ distinction and finalization
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'bom'");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS last_template_snapshot JSONB");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_last_final BOOLEAN DEFAULT FALSE");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS final_budget NUMERIC");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS final_revenue NUMERIC");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS final_profit NUMERIC");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS final_margin NUMERIC");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS category_order JSONB");
 
     // Fix unique constraint to include type
     try {
@@ -617,15 +601,13 @@ export async function registerRoutes(
     console.log("[migrations] boq_versions 'type', 'is_locked', 'last_template_snapshot', 'is_last_final', and 'category_order' ensured");
 
     // Ensure image column exists on products
-    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS image TEXT`);
     console.log("[migrations] products 'image' column ensured");
+    console.log("[migrations] products 'category' column ensured");
   } catch (err: unknown) {
     console.warn('[migrations] ensure alerts table failed (continuing):', (err as any)?.message || err);
   }
   // Ensure alerts table has shop columns (for upgrades)
   try {
-    await query(`ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shop_id VARCHAR(100)`);
-    await query(`ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shop_name TEXT`);
   } catch (err: unknown) {
     console.warn('[migrations] ensure alerts shop columns failed (continuing):', (err as any)?.message || err);
   }
@@ -892,27 +874,13 @@ export async function registerRoutes(
 
   // Ensure material_submissions table has required columns
   try {
-    await query(
-      `ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS submitted_by VARCHAR(36)`,
-    );
-    await query(
-      `ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP DEFAULT NOW()`,
-    );
-    await query(
-      `ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS dimensions VARCHAR(255)`,
-    );
-    await query(
-      `ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS finishtype VARCHAR(255)`,
-    );
-    await query(
-      `ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS metaltype VARCHAR(255)`,
-    );
-    await query(
-      `ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS product VARCHAR(255)`,
-    );
-    await query(
-      `ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS category VARCHAR(255)`,
-    );
+    
+    
+    
+    
+    
+    
+    
   } catch (err: unknown) {
     console.warn(
       "[migrations] ensure material_submissions columns failed (continuing):",
@@ -923,15 +891,9 @@ export async function registerRoutes(
 
   // Ensure shops table has vendor_category column
   try {
-    await query(
-      `ALTER TABLE shops ADD COLUMN IF NOT EXISTS vendor_category VARCHAR(255)`,
-    );
-    await query(
-      `ALTER TABLE shops ADD COLUMN IF NOT EXISTS new_location TEXT`,
-    );
-    await query(
-      `ALTER TABLE shops ADD COLUMN IF NOT EXISTS terms_and_conditions TEXT`,
-    );
+    
+    
+    
   } catch (err: unknown) {
     console.warn(
       "[migrations] ensure shops columns failed (continuing):",
@@ -964,16 +926,8 @@ export async function registerRoutes(
     );
   }
   try {
-    await query(`ALTER TABLE boq_projects ADD COLUMN IF NOT EXISTS location TEXT`);
-    await query(`ALTER TABLE boq_projects ADD COLUMN IF NOT EXISTS client_address TEXT`);
-    await query(`ALTER TABLE boq_projects ADD COLUMN IF NOT EXISTS gst_no VARCHAR(100)`);
-    await query(`ALTER TABLE boq_projects ADD COLUMN IF NOT EXISTS project_value VARCHAR(100)`);
-    await query(`ALTER TABLE boq_projects ADD COLUMN IF NOT EXISTS project_status VARCHAR(50) DEFAULT 'started'`);
 
     // Also on boq_versions for snapshots
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_client_address TEXT`);
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_gst_no VARCHAR(100)`);
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_value VARCHAR(100)`);
   } catch (err: unknown) {
     console.warn('[db] Could not update boq_projects/versions columns (continuing):', (err as any)?.message || err);
   }
@@ -1021,7 +975,6 @@ export async function registerRoutes(
         FOREIGN KEY (plan_id) REFERENCES sketch_plans(id) ON DELETE CASCADE
       )
     `);
-    await query(`ALTER TABLE sketch_plan_images ADD COLUMN IF NOT EXISTS image_name VARCHAR(255)`);
     await query(`
       CREATE TABLE IF NOT EXISTS sketch_plan_attachments (
         id VARCHAR(100) PRIMARY KEY,
@@ -1050,21 +1003,6 @@ export async function registerRoutes(
 
   // Add new columns for enhanced Sketch a Plan items
   try {
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS material_id UUID`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS dimension_unit VARCHAR(10) DEFAULT 'feet'`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_vendor_id VARCHAR(100)`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255)`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS dimensions JSONB`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_user_id VARCHAR(100)`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_user_name VARCHAR(255)`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS user_task_status VARCHAR(50) DEFAULT 'unassigned'`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS category TEXT`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`);
-    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS item_description TEXT`);
-    await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS version_number INTEGER DEFAULT 1`);
-    await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS parent_plan_id VARCHAR(100)`);
-    await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS version_status VARCHAR(50) DEFAULT 'draft'`);
-    await query(`ALTER TABLE sketch_plans ADD COLUMN IF NOT EXISTS category_order JSONB`);
   } catch (err) {
     console.warn("[db] Could not add enhanced columns to sketch_plan_items:", (err as any)?.message || err);
   }
@@ -1135,11 +1073,6 @@ export async function registerRoutes(
 
   // Ensure new columns exist on existing installations and populate them
   try {
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_name VARCHAR(255)`);
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_client VARCHAR(255)`);
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_location TEXT`);
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS rejection_reason TEXT`);
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS category_order JSONB`);
 
     // Populate project_name, project_client and project_location from boq_projects where missing
     await query(`
@@ -1157,12 +1090,8 @@ export async function registerRoutes(
 
   // Migrate boq_items to support version_id and sort_order
   try {
-    await query(
-      `ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS version_id VARCHAR(100)`,
-    );
-    await query(
-      `ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`,
-    );
+    
+    
     console.log("[db] boq_items version_id and sort_order columns ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1204,7 +1133,6 @@ export async function registerRoutes(
       )
     `);
     // Ensure template_id exists on legacy tables
-    await query(`ALTER TABLE proposal_items ADD COLUMN IF NOT EXISTS template_id UUID`);
 
     await query(`
       CREATE TABLE IF NOT EXISTS proposal_material_submissions (
@@ -1240,7 +1168,6 @@ export async function registerRoutes(
 
       try {
         // Step 1: Create new UUID column
-        await query(`ALTER TABLE proposals ADD COLUMN IF NOT EXISTS vendor_id_uuid UUID`);
 
         // Step 2: Migrate data - cast vendor_id to UUID
         await query(`
@@ -1301,12 +1228,6 @@ export async function registerRoutes(
     await query(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_project_id ON purchase_orders(project_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor_id ON purchase_orders(vendor_id)`);
 
-    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS version_id VARCHAR(100)`);
-    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS version_number TEXT`);
-    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS shipping_address TEXT`);
-    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS payment_terms TEXT`);
-    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS dc_number TEXT`);
-    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS dc_date DATE`);
 
     console.log("[db] purchase_orders table verified/created");
   } catch (err: unknown) {
@@ -1333,12 +1254,6 @@ export async function registerRoutes(
     `);
     await query(`CREATE INDEX IF NOT EXISTS idx_purchase_order_items_po_id ON purchase_order_items(po_id)`);
     // Ensure hsn_code and sac_code columns exist (for upgrades from older schema)
-    await query(`ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(50)`);
-    await query(`ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS sac_code VARCHAR(50)`);
-    await query(`ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS material_id VARCHAR(255)`);
-    await query(`ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS original_qty NUMERIC(10, 3)`);
-    await query(`ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS qty_modified BOOLEAN DEFAULT FALSE`);
-    await query(`ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS is_synced BOOLEAN DEFAULT FALSE`);
     console.log("[db] purchase_order_items table verified/created");
   } catch (err: unknown) {
     console.warn("[db] Could not create purchase_order_items table:", (err as any)?.message || err);
@@ -1362,9 +1277,6 @@ export async function registerRoutes(
     `);
     await query(`CREATE INDEX IF NOT EXISTS idx_po_requests_requester ON po_requests(requester_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_po_requests_project ON po_requests(project_id)`);
-    await query(`ALTER TABLE po_requests ADD COLUMN IF NOT EXISTS deliver_to TEXT`);
-    await query(`ALTER TABLE po_requests ADD COLUMN IF NOT EXISTS payment_terms TEXT`);
-    await query(`ALTER TABLE po_requests ADD COLUMN IF NOT EXISTS terms_conditions TEXT`);
     console.log("[db] po_requests table verified/created");
   } catch (err: unknown) {
     console.warn("[db] Could not create po_requests table:", (err as any)?.message || err);
@@ -1386,9 +1298,6 @@ export async function registerRoutes(
       )
     `);
     await query(`CREATE INDEX IF NOT EXISTS idx_po_request_items_req_id ON po_request_items(po_request_id)`);
-    await query(`ALTER TABLE po_request_items ADD COLUMN IF NOT EXISTS material_id VARCHAR(255)`);
-    await query(`ALTER TABLE po_request_items ADD COLUMN IF NOT EXISTS original_qty DECIMAL(10,2)`);
-    await query(`ALTER TABLE po_request_items ADD COLUMN IF NOT EXISTS rate DECIMAL(10,2)`);
     // Populate original_qty from qty for existing rows
     await query(`UPDATE po_request_items SET original_qty = qty WHERE original_qty IS NULL`);
     console.log("[db] po_request_items table verified/created");
@@ -1409,11 +1318,6 @@ export async function registerRoutes(
         created_at TIMESTAMPTZ DEFAULT now()
       )
     `);
-    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS source_version_id VARCHAR(100)`);
-    await query(`ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS copied_from_item_id VARCHAR(100)`);
-    await query(`ALTER TABLE boq_history ADD COLUMN IF NOT EXISTS source_version_id VARCHAR(100)`);
-    await query(`ALTER TABLE boq_history ADD COLUMN IF NOT EXISTS item_id VARCHAR(100)`);
-    await query(`ALTER TABLE boq_history ADD COLUMN IF NOT EXISTS item_name TEXT`);
     console.log("[db] boq_history table verified/created");
   } catch (err: unknown) {
     console.warn(
@@ -1468,7 +1372,6 @@ export async function registerRoutes(
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    await query(`ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS config_name VARCHAR(255) DEFAULT 'Default Configuration'`);
     console.log("[db] step11_products and items tables ensured");
   } catch (err: unknown) {
     console.warn("[db] Could not ensure step11_products tables:", (err as any)?.message || err);
@@ -1509,13 +1412,6 @@ export async function registerRoutes(
     console.log("[db] product_step3_config tables ensured");
 
     // Add new BOQ architecture columns (safe, idempotent)
-    await query(`ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS required_unit_type VARCHAR(20) DEFAULT 'Sqft'`);
-    await query(`ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS base_required_qty DECIMAL(15,2) DEFAULT 1`);
-    await query(`ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS wastage_pct_default DECIMAL(15,4) DEFAULT 0`);
-    await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS base_qty DECIMAL(15,2)`);
-    await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS wastage_pct DECIMAL(15,4)`);
-    await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)`);
-    await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE`);
 
     // Explicitly upgrade types if they already exist with old restrictive types
     await query(`ALTER TABLE product_step3_config ALTER COLUMN wastage_pct_default TYPE DECIMAL(15,4)`);
@@ -1528,9 +1424,7 @@ export async function registerRoutes(
 
   // Ensure boq_items has a user_added flag (only items explicitly saved via Add Product)
   try {
-    await query(
-      `ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS user_added BOOLEAN DEFAULT true`,
-    );
+    
     console.log("[db] boq_items user_added column ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1541,9 +1435,7 @@ export async function registerRoutes(
 
   // Ensure boq_items has a precomputed computed_value column for fast project value aggregation
   try {
-    await query(
-      `ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS computed_value NUMERIC DEFAULT 0`,
-    );
+    
     console.log("[db] boq_items computed_value column ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1554,11 +1446,8 @@ export async function registerRoutes(
 
   // Ensure material_templates table has vendor_category, tax_code_type, and tax_code_value columns
   try {
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS vendor_category VARCHAR(255)`,
-    );
+    
     // Ensure column exists; then ensure the CHECK constraint allows NULL or the allowed values
-    await query(`ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS tax_code_type VARCHAR(10)`);
     // Drop old constraint if it exists (safely), then add a correct one that allows NULL
     try {
       await query(`ALTER TABLE material_templates DROP CONSTRAINT IF EXISTS material_templates_tax_code_type_check`);
@@ -1566,29 +1455,13 @@ export async function registerRoutes(
       // ignore
     }
     await query(`ALTER TABLE material_templates ADD CONSTRAINT material_templates_tax_code_type_check CHECK (tax_code_type IS NULL OR tax_code_type IN ('hsn', 'sac'))`);
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(50)`
-    );
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS sac_code VARCHAR(50)`
-    );
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS image TEXT`
-    );
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS metaltype VARCHAR(255)`
-    );
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS brandname VARCHAR(255)`
-    );
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS dimensions VARCHAR(255)`
-    );
-    await query(
-      `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS finishtype VARCHAR(255)`
-    );
-    await query(`ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(50)`);
-    await query(`ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS sac_code VARCHAR(50)`);
+    
+    
+    
+    
+    
+    
+    
     console.log("[db] material_templates/submissions hsn/sac/image/metaltype/brandname/dimensions/finishtype columns ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1599,20 +1472,6 @@ export async function registerRoutes(
 
   // Ensure materials table has vendor_category, template_id, and optional tax columns
   try {
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS vendor_category VARCHAR(255)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS template_id UUID`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(50)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS sac_code VARCHAR(50)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS tax_code_type VARCHAR(10)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS tax_code_value VARCHAR(50)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS technicalspecification TEXT`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS subcategory VARCHAR(255)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS product VARCHAR(255)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS dimensions VARCHAR(255)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS finishtype VARCHAR(255)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS metaltype VARCHAR(255)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS brandname VARCHAR(255)`);
-    await query(`ALTER TABLE materials ADD COLUMN IF NOT EXISTS modelnumber VARCHAR(255)`);
     console.log("[db] materials vendor/template/tax/techspec/extra columns ensured");
   } catch (err: unknown) {
     console.warn(
@@ -1935,12 +1794,8 @@ export async function registerRoutes(
 
       // ✅ NEW: ensure approval columns exist + mark supplier as pending (DB controls approval)
       try {
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approved text DEFAULT 'approved'`,
-        );
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_reason text`,
-        );
+        
+        
 
         const approvedValue = role === "supplier" ? "pending" : "approved";
         await query(`UPDATE users SET approved = $2 WHERE id = $1`, [
@@ -2182,12 +2037,8 @@ export async function registerRoutes(
     requireRole("admin"),
     async (_req: Request, res: Response) => {
       try {
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approved text DEFAULT 'approved'`,
-        );
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_reason text`,
-        );
+        
+        
 
         const result = await query(
           `SELECT id, username, role, approved, approval_reason
@@ -2213,12 +2064,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
 
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approved text DEFAULT 'approved'`,
-        );
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_reason text`,
-        );
+        
+        
 
         const result = await query(
           `UPDATE users
@@ -2251,12 +2098,8 @@ export async function registerRoutes(
         const id = req.params.id;
         const reason = req.body?.reason || null;
 
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approved text DEFAULT 'approved'`,
-        );
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_reason text`,
-        );
+        
+        
 
         const result = await query(
           `UPDATE users
@@ -2290,12 +2133,8 @@ export async function registerRoutes(
     requireRole("admin"),
     async (_req: Request, res: Response) => {
       try {
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approved text DEFAULT 'approved'`,
-        );
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_reason text`,
-        );
+        
+        
 
         // Only PENDING suppliers (so the page won't show approved ones)
         const result = await query(
@@ -2322,12 +2161,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
 
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approved text DEFAULT 'approved'`,
-        );
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_reason text`,
-        );
+        
+        
 
         const result = await query(
           `UPDATE users
@@ -2360,12 +2195,8 @@ export async function registerRoutes(
         const id = req.params.id;
         const reason = req.body?.reason || null;
 
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approved text DEFAULT 'approved'`,
-        );
-        await query(
-          `ALTER TABLE users ADD COLUMN IF NOT EXISTS approval_reason text`,
-        );
+        
+        
 
         const result = await query(
           `UPDATE users
@@ -2936,12 +2767,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
         // ensure approved column exists
-        await query(
-          "ALTER TABLE shops ADD COLUMN IF NOT EXISTS approved boolean DEFAULT true",
-        );
-        await query(
-          "ALTER TABLE shops ADD COLUMN IF NOT EXISTS approval_reason text",
-        );
+        
+        
         const result = await query(
           "UPDATE shops SET approved = true, approval_reason = NULL WHERE id = $1 RETURNING *",
           [id],
@@ -3164,12 +2991,8 @@ export async function registerRoutes(
     async (req, res) => {
       try {
         const id = req.params.id;
-        await query(
-          "ALTER TABLE materials ADD COLUMN IF NOT EXISTS approved boolean DEFAULT true",
-        );
-        await query(
-          "ALTER TABLE materials ADD COLUMN IF NOT EXISTS approval_reason text",
-        );
+        
+        
         const result = await query(
           "UPDATE materials SET approved = true, approval_reason = NULL WHERE id = $1 RETURNING *",
           [id],
@@ -3190,12 +3013,8 @@ export async function registerRoutes(
       try {
         const id = req.params.id;
         const reason = req.body?.reason || null;
-        await query(
-          "ALTER TABLE materials ADD COLUMN IF NOT EXISTS approved boolean DEFAULT true",
-        );
-        await query(
-          "ALTER TABLE materials ADD COLUMN IF NOT EXISTS approval_reason text",
-        );
+        
+        
         const result = await query(
           "UPDATE materials SET approved = false, approval_reason = $2 WHERE id = $1 RETURNING *",
           [id, reason],
@@ -4490,8 +4309,8 @@ export async function registerRoutes(
     requireRole("admin", "software_team", "purchase_team", "pre_sales", "product_manager", "contractor"),
     async (req: Request, res: Response) => {
       try {
-        const { name, subcategory, taxCodeType, taxCodeValue, hsn_code, sac_code, image } = req.body;
-        console.log('/api/products POST body ->', { name, subcategory, taxCodeType, taxCodeValue, hsn_code, sac_code, image: image ? "present" : "absent" });
+        const { name, subcategory, category, taxCodeType, taxCodeValue, hsn_code, sac_code, image } = req.body;
+        console.log('/api/products POST body ->', { name, subcategory, category, taxCodeType, taxCodeValue, hsn_code, sac_code, image: image ? "present" : "absent" });
 
         if (!name) {
           res.status(400).json({ message: "Product name is required" });
@@ -4506,23 +4325,23 @@ export async function registerRoutes(
         const result = await query(
           `
           WITH inserted AS (
-            INSERT INTO products (name, subcategory, tax_code_type, tax_code_value, hsn_code, sac_code, created_by, image)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO products (name, subcategory, category, tax_code_type, tax_code_value, hsn_code, sac_code, created_by, image)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
           )
           SELECT
             p.*,
-            s.name as subcategory_name,
-            c.name as category_name
+            COALESCE(p.subcategory, '') as subcategory_name,
+            COALESCE(p.category, c.name, '') as category_name
           FROM inserted p
           LEFT JOIN (
-            SELECT DISTINCT ON (LOWER(TRIM(name))) name, category
+            SELECT DISTINCT ON (LOWER(TRIM(name)), LOWER(TRIM(category))) name, category
             FROM material_subcategories
-            ORDER BY LOWER(TRIM(name)), (CASE WHEN category = 'Demolishing' THEN 1 ELSE 0 END) ASC, created_at DESC
-          ) s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
+            ORDER BY LOWER(TRIM(name)), LOWER(TRIM(category)), created_at DESC
+          ) s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name)) AND (p.category IS NULL OR LOWER(TRIM(p.category)) = LOWER(TRIM(s.category)))
           LEFT JOIN material_categories c ON LOWER(TRIM(s.category)) = LOWER(TRIM(c.name))
           `,
-          [name, subcategory || null, taxCodeType || null, taxCodeValue || null, hsn_code || null, sac_code || null, req.user?.username || "unknown", image || null],
+          [name, subcategory || null, category || null, taxCodeType || null, taxCodeValue || null, hsn_code || null, sac_code || null, req.user?.username || "unknown", image || null],
         );
         console.log('/api/products POST inserted ->', result.rows[0]);
 
@@ -4546,8 +4365,8 @@ export async function registerRoutes(
       let queryStr = `
         SELECT DISTINCT ON (p.id)
           p.*,
-          s.name as subcategory_name,
-          c.name as category_name,
+          COALESCE(p.subcategory, '') as subcategory_name,
+          COALESCE(p.category, c.name, '') as category_name,
           EXISTS (
             SELECT 1 FROM step11_products WHERE product_id = p.id
             UNION ALL
@@ -4578,10 +4397,10 @@ export async function registerRoutes(
           ) AS has_price_updates
         FROM products p
         LEFT JOIN (
-          SELECT DISTINCT ON (LOWER(TRIM(name))) name, category
+          SELECT DISTINCT ON (LOWER(TRIM(name)), LOWER(TRIM(category))) name, category
           FROM material_subcategories
-          ORDER BY LOWER(TRIM(name)), (CASE WHEN category = 'Demolishing' THEN 1 ELSE 0 END) ASC, created_at DESC
-        ) s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
+          ORDER BY LOWER(TRIM(name)), LOWER(TRIM(category)), created_at DESC
+        ) s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name)) AND (p.category IS NULL OR LOWER(TRIM(p.category)) = LOWER(TRIM(s.category)))
         LEFT JOIN material_categories c ON LOWER(TRIM(s.category)) = LOWER(TRIM(c.name))
       `;
 
@@ -4610,14 +4429,14 @@ export async function registerRoutes(
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { name, subcategory, taxCodeType, taxCodeValue, hsn_code, sac_code, hsnCode, sacCode, image } = req.body;
+        const { name, subcategory, category, taxCodeType, taxCodeValue, hsn_code, sac_code, hsnCode, sacCode, image } = req.body;
 
         // Support both hsn_code (db style) and hsnCode (frontend style)
         // Prioritize camelCase (hsnCode/sacCode) if both are present to reflect latest frontend intent
         const finalHsnCode = hsnCode !== undefined ? hsnCode : hsn_code;
         const finalSacCode = sacCode !== undefined ? sacCode : sac_code;
 
-        console.log(`/api/products/${id} PUT body ->`, { name, subcategory, hsn_code: finalHsnCode, sac_code: finalSacCode, image: image ? "present" : "absent" });
+        console.log(`/api/products/${id} PUT body ->`, { name, subcategory, category, hsn_code: finalHsnCode, sac_code: finalSacCode, image: image ? "present" : "absent" });
 
         if (!name) {
           res.status(400).json({ message: "Product name is required" });
@@ -4633,23 +4452,23 @@ export async function registerRoutes(
           `
           WITH updated AS (
             UPDATE products 
-            SET name = $1, subcategory = $2, tax_code_type = $3, tax_code_value = $4, hsn_code = $5, sac_code = $6, image = $8
+            SET name = $1, subcategory = $2, tax_code_type = $3, tax_code_value = $4, hsn_code = $5, sac_code = $6, image = $8, category = $9
             WHERE id = $7
             RETURNING *
           )
           SELECT
             p.*,
-            s.name as subcategory_name,
-            c.name as category_name
+            COALESCE(p.subcategory, '') as subcategory_name,
+            COALESCE(p.category, c.name, '') as category_name
           FROM updated p
           LEFT JOIN (
-            SELECT DISTINCT ON (LOWER(TRIM(name))) name, category
+            SELECT DISTINCT ON (LOWER(TRIM(name)), LOWER(TRIM(category))) name, category
             FROM material_subcategories
-            ORDER BY LOWER(TRIM(name)), (CASE WHEN category = 'Demolishing' THEN 1 ELSE 0 END) ASC, created_at DESC
-          ) s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
+            ORDER BY LOWER(TRIM(name)), LOWER(TRIM(category)), created_at DESC
+          ) s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name)) AND (p.category IS NULL OR LOWER(TRIM(p.category)) = LOWER(TRIM(s.category)))
           LEFT JOIN material_categories c ON LOWER(TRIM(s.category)) = LOWER(TRIM(c.name))
           `,
-          [name, subcategory, taxCodeType || null, taxCodeValue || null, finalHsnCode || null, finalSacCode || null, id, image || null],
+          [name, subcategory, taxCodeType || null, taxCodeValue || null, finalHsnCode || null, finalSacCode || null, id, image || null, category || null],
         );
         console.log(`/api/products/${id} PUT updated ->`, result.rows[0]);
 
@@ -5717,7 +5536,6 @@ export async function registerRoutes(
         const { projectId } = req.params;
 
         // Ensure is_disabled column exists
-        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN DEFAULT FALSE");
 
         const { type, excludeApproved } = req.query;
         let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, is_disabled, last_template_snapshot, created_at, updated_at, category_order 
@@ -6581,10 +6399,6 @@ export async function registerRoutes(
       try {
         const user = (req as any).user;
         // Ensure columns exist
-        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_cleared BOOLEAN DEFAULT FALSE");
-        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS purchase_approval_status TEXT DEFAULT 'pending'");
-        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS purchase_rejection_reason TEXT");
-        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_boq_submission BOOLEAN DEFAULT FALSE");
 
         let queryStr = "SELECT bv.*, bp.name as project_name, bp.client as project_client FROM boq_versions bv LEFT JOIN boq_projects bp ON bv.project_id = bp.id WHERE bv.status != 'draft' AND ((bv.is_cleared IS FALSE OR bv.is_cleared IS NULL) OR bv.status = 'edit_requested' OR bv.status = 'pending_approval' OR bv.status = 'submitted')";
         const params: any[] = [];
@@ -7290,7 +7104,7 @@ export async function registerRoutes(
           const userObj = (req.user as any) || {};
           const userId = userObj.id || 'system';
           const userFull = userObj.fullName || userObj.username || 'System';
-          
+
           for (const resItem of results) {
             await query(
               `INSERT INTO boq_history (version_id, user_id, user_full_name, action, item_id, item_name) VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -7627,7 +7441,7 @@ export async function registerRoutes(
               const masterMat = matMap.get(String(mId)) || matByNameMap.get(String(line.name || line.title || "Material").toLowerCase().trim());
               if (masterMat) {
                 const latestCat = (masterMat.category || "").trim();
-                const currentCat = (line.category || "").trim();
+                const currentCat = ((line as any).category || "").trim();
                 if (latestCat && (!currentCat || currentCat.toLowerCase() !== latestCat.toLowerCase())) {
                   hasChanges = true;
                   changeLog.push({ itemName: `${itemName} > ${line.name || line.title || "Material"}`, field: "Material Category", from: currentCat || "None", to: latestCat });
@@ -7645,7 +7459,7 @@ export async function registerRoutes(
               const masterMat = matMap.get(String(mId)) || matByNameMap.get(String(line.title || line.name || "Item").toLowerCase().trim());
               if (masterMat) {
                 const latestCat = (masterMat.category || "").trim();
-                const currentCat = (line.category || "").trim();
+                const currentCat = ((line as any).category || "").trim();
                 if (latestCat && (!currentCat || currentCat.toLowerCase() !== latestCat.toLowerCase())) {
                   hasChanges = true;
                   changeLog.push({ itemName: `${itemName} > ${line.title || line.name || "Item"}`, field: "Item Category", from: currentCat || "None", to: latestCat });
@@ -7892,13 +7706,13 @@ export async function registerRoutes(
           const userObj = (req.user as any) || {};
           const userId = userObj.id || 'system';
           const userFull = userObj.fullName || userObj.username || 'System';
-          
+
           let td = itemData.table_data || {};
           if (typeof td === 'string') {
             try { td = JSON.parse(td); } catch { td = {}; }
           }
           const itemName = td.product_name || td.category_name || "Unknown Item";
-          
+
           await query(
             `INSERT INTO boq_history (version_id, user_id, user_full_name, action, reason, item_id, item_name) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [itemData.version_id, userId, userFull, 'DELETED', req.query.reason || 'No justification provided', itemId, itemName]
@@ -8604,17 +8418,8 @@ export async function registerRoutes(
           }
 
           // ensure columns exist
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS required_unit_type VARCHAR(20)");
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS base_required_qty DECIMAL(10,4)");
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS wastage_pct_default DECIMAL(10,4)");
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS dim_a DECIMAL(10,4)");
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS dim_b DECIMAL(10,4)");
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS dim_c DECIMAL(10,4)");
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS description TEXT");
 
           // Expand text column limits to prevent saving errors on long names/descriptions
-          await query("ALTER TABLE step11_products ALTER COLUMN product_name TYPE TEXT");
-          await query("ALTER TABLE step11_products ALTER COLUMN config_name TYPE TEXT");
 
           // 2. Insert into step11_products
           console.log(`[POST /api/step11-products] Inserting new product config for productId: ${productId}`);
@@ -8649,17 +8454,8 @@ export async function registerRoutes(
               const item = items[i];
               console.log(`[POST /api/step11-products] Inserting item ${i + 1}/${items.length}:`, JSON.stringify(item));
               // ensure column exists
-              await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE");
-              await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS shop_name TEXT");
-              await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS base_qty DECIMAL(10,4)");
-              await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
-              await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
 
               // Expand text column limits
-              await query("ALTER TABLE step11_product_items ALTER COLUMN material_id TYPE TEXT");
-              await query("ALTER TABLE step11_product_items ALTER COLUMN material_name TYPE TEXT");
-              await query("ALTER TABLE step11_product_items ALTER COLUMN location TYPE TEXT");
-              await query("ALTER TABLE step11_product_items ALTER COLUMN shop_name TYPE TEXT");
 
               await query(
                 `INSERT INTO step11_product_items 
@@ -8737,13 +8533,7 @@ export async function registerRoutes(
           await query("DELETE FROM product_step3_config WHERE product_id = $1", [productId]);
 
           // ensure columns exist
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS dim_a DECIMAL(10,4)");
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS dim_b DECIMAL(10,4)");
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS dim_c DECIMAL(10,4)");
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS description TEXT");
 
-          await query("ALTER TABLE product_step3_config ALTER COLUMN product_name TYPE TEXT");
-          await query("ALTER TABLE product_step3_config ALTER COLUMN config_name TYPE TEXT");
 
           // Insert new Step 3 config header
           const configResult = await query(
@@ -8776,17 +8566,9 @@ export async function registerRoutes(
           // insert items
           if (items && Array.isArray(items)) {
             // ensure column exists
-            await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE");
 
             // Add shop_name to config items
-            await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
-            await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS shop_name TEXT");
-            await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
 
-            await query("ALTER TABLE product_step3_config_items ALTER COLUMN material_id TYPE TEXT");
-            await query("ALTER TABLE product_step3_config_items ALTER COLUMN material_name TYPE TEXT");
-            await query("ALTER TABLE product_step3_config_items ALTER COLUMN location TYPE TEXT");
-            await query("ALTER TABLE product_step3_config_items ALTER COLUMN shop_name TYPE TEXT");
 
             for (const item of items) {
               await query(
@@ -9170,8 +8952,6 @@ export async function registerRoutes(
 
   // ==================== PRODUCT APPROVAL ROUTES ====================
   // Ensure product_approvals has rejection_reason column
-  query("ALTER TABLE product_approvals ADD COLUMN IF NOT EXISTS rejection_reason TEXT").catch(() => { });
-  query("ALTER TABLE product_approval_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
 
   // POST /api/product-approvals - Submit for approval
   app.post(
@@ -9246,10 +9026,30 @@ export async function registerRoutes(
     "/api/product-approvals",
     authMiddleware,
     requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
-    async (_req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       try {
-        const result = await query(
-          `WITH latest_submissions AS (
+        const { status } = req.query;
+        let queryStr = "";
+        
+        if (status === "approved") {
+          queryStr = `
+           SELECT p.*, pr.name as live_product_name,
+             COALESCE(pr.name, p.product_name) as product_name,
+             COALESCE(vc.name, f_vc.name, p.category_id) as category_name,
+             COALESCE(vsc.name, pr.subcategory, p.subcategory_id) as subcategory_name,
+             (SELECT COUNT(*) FROM product_approvals p2 
+              WHERE p2.product_id = p.product_id 
+              AND p2.config_name = p.config_name) as submission_count
+           FROM product_approvals p
+           LEFT JOIN products pr ON p.product_id = pr.id
+           LEFT JOIN vendor_categories vc ON p.category_id = vc.name
+           LEFT JOIN material_subcategories vsc ON p.subcategory_id = vsc.name AND (p.category_id = vsc.category OR p.category_id IS NULL)
+           LEFT JOIN material_subcategories f_vsc ON pr.subcategory = f_vsc.name
+           LEFT JOIN material_categories f_vc ON f_vsc.category = f_vc.name
+           WHERE p.status = 'approved'
+           ORDER BY p.created_at DESC`;
+        } else {
+          queryStr = `WITH latest_submissions AS (
              SELECT DISTINCT ON (pa.product_id, pa.config_name) pa.*
              FROM product_approvals pa
              ORDER BY pa.product_id, pa.config_name, pa.created_at DESC
@@ -9267,8 +9067,10 @@ export async function registerRoutes(
            LEFT JOIN material_subcategories vsc ON p.subcategory_id = vsc.name AND (p.category_id = vsc.category OR p.category_id IS NULL)
            LEFT JOIN material_subcategories f_vsc ON pr.subcategory = f_vsc.name
            LEFT JOIN material_categories f_vc ON f_vsc.category = f_vc.name
-           ORDER BY p.created_at DESC`
-        );
+           ORDER BY p.created_at DESC`;
+        }
+
+        const result = await query(queryStr);
         res.json({ approvals: result.rows });
       } catch (err) {
         console.error("GET /api/product-approvals error:", err);
@@ -9406,10 +9208,6 @@ export async function registerRoutes(
           // 1. Save to product_step3_config (overwrite)
           await query("DELETE FROM product_step3_config WHERE product_id = $1", [appVal.product_id]);
           // Ensure columns exist (best-effort)
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS dim_a DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS dim_b DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS dim_c DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE product_step3_config ADD COLUMN IF NOT EXISTS description TEXT").catch(() => { });
 
           const step3ConfigResult = await query(
             `INSERT INTO product_step3_config (
@@ -9427,9 +9225,6 @@ export async function registerRoutes(
           const step3Id = step3ConfigResult.rows[0].id;
 
           // Ensure item columns exist
-          await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE").catch(() => { });
-          await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)").catch(() => { });
-          await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
 
           for (const item of appItems) {
             await query(
@@ -9447,13 +9242,6 @@ export async function registerRoutes(
           }
 
           // 2. Save to step11_products (include all columns matching the original POST route)
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS required_unit_type VARCHAR(20)").catch(() => { });
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS base_required_qty DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS wastage_pct_default DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS dim_a DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS dim_b DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS dim_c DECIMAL(10,4)").catch(() => { });
-          await query("ALTER TABLE step11_products ADD COLUMN IF NOT EXISTS description TEXT").catch(() => { });
 
           // Delete existing config with same config_name if any
           if (appVal.config_name) {
@@ -9472,10 +9260,6 @@ export async function registerRoutes(
           );
           const step11Id = step11Result.rows[0].id;
 
-          await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
-          await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE").catch(() => { });
-          await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)").catch(() => { });
-          await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
 
           for (const item of appItems) {
             await query(
@@ -10498,23 +10282,23 @@ export async function registerRoutes(
         );
 
         if (originalItem && parseFloat(originalItem.rate) !== parseFloat(item.rate)) {
-            await query(
-                `INSERT INTO po_rate_change_history (po_id, po_number, po_item_id, item_name, vendor_name, original_rate, reduced_rate, reason, status, changed_by, changed_by_name)
+          await query(
+            `INSERT INTO po_rate_change_history (po_id, po_number, po_item_id, item_name, vendor_name, original_rate, reduced_rate, reason, status, changed_by, changed_by_name)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-                [
-                    newPo.id,
-                    newPoNumber,
-                    itemRes.rows[0].id,
-                    item.item || item.item_name,
-                    finalVendorName,
-                    parseFloat(originalItem.rate),
-                    parseFloat(item.rate),
-                    reason || "Revised during PO Revise Flow",
-                    "approved", 
-                    user.id,
-                    user.fullName || user.username
-                ]
-            );
+            [
+              newPo.id,
+              newPoNumber,
+              itemRes.rows[0].id,
+              item.item || item.item_name,
+              finalVendorName,
+              parseFloat(originalItem.rate),
+              parseFloat(item.rate),
+              reason || "Revised during PO Revise Flow",
+              "approved",
+              user.id,
+              user.fullName || user.username
+            ]
+          );
         }
       }
 
@@ -10638,7 +10422,7 @@ export async function registerRoutes(
       const request = reqRes.rows[0];
 
       if (request.status !== 'pending') {
-         return res.status(400).json({ message: `Request is already ${request.status}` });
+        return res.status(400).json({ message: `Request is already ${request.status}` });
       }
 
       await query('BEGIN');
@@ -11258,7 +11042,6 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
 
   // Ensure current_project_id column exists in users table
   try {
-    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS current_project_id VARCHAR(100)`);
   } catch (err: unknown) {
     console.warn('[dynamic-access] Could not add current_project_id to users:', (err as any)?.message || err);
   }

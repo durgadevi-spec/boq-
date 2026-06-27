@@ -761,6 +761,7 @@ export default function AdminDashboard() {
         description: `Sub-category "${newSubCategory}" created under ${selectedCategoryForSubCategory}`,
       });
       setNewSubCategory("");
+      return newSub;
     } catch (err: any) {
       console.error('add subcategory error', err);
       toast({
@@ -768,6 +769,7 @@ export default function AdminDashboard() {
         description: err?.message || 'Failed to create subcategory',
         variant: "destructive",
       });
+      return null;
     }
   };
 
@@ -803,9 +805,18 @@ export default function AdminDashboard() {
 
     try {
       // Build payload: include HSN and SAC as separate fields if provided.
+      // Find category from subcategory ID
+      let category = null;
+      if (newProduct.subcategory.includes('::')) {
+        const subId = newProduct.subcategory.split('::')[1];
+        const match = subCategories.find((s: any) => s.id?.toString() === subId);
+        if (match) category = match.category;
+      }
+
       const payload: any = {
         name: newProduct.name,
-        subcategory: newProduct.subcategory,
+        subcategory: newProduct.subcategory.split('::')[0],
+        category: category,
       };
       if (newProduct.hsnCode && newProduct.hsnCode.trim()) payload.hsn_code = newProduct.hsnCode.trim();
       if (newProduct.sacCode && newProduct.sacCode.trim()) payload.sac_code = newProduct.sacCode.trim();
@@ -830,9 +841,19 @@ export default function AdminDashboard() {
   };
 
   const handleCloneProduct = (product: any) => {
+    let subcategoryValue = product.subcategory || "";
+    if (subcategoryValue) {
+      const match = subCategories.find((s: any) =>
+        s.name?.trim().toLowerCase() === product.subcategory?.trim().toLowerCase() &&
+        (!product.category_name || s.category?.trim().toLowerCase() === product.category_name?.trim().toLowerCase())
+      ) || subCategories.find((s: any) => s.name?.trim().toLowerCase() === product.subcategory?.trim().toLowerCase());
+      if (match) {
+        subcategoryValue = `${match.name}::${match.id}`;
+      }
+    }
     setNewProduct({
       name: `${product.name} (Copy)`,
-      subcategory: product.subcategory || "",
+      subcategory: subcategoryValue,
       taxCodeType: product.taxCodeType || null,
       taxCodeValue: product.taxCodeValue || "",
       hsnCode: product.hsn_code || product.hsnCode || "",
@@ -868,9 +889,18 @@ export default function AdminDashboard() {
     }
 
     try {
+      // Find category from subcategory ID
+      let category = null;
+      if (editingProduct.subcategory.includes('::')) {
+        const subId = editingProduct.subcategory.split('::')[1];
+        const match = subCategories.find((s: any) => s.id?.toString() === subId);
+        if (match) category = match.category;
+      }
+
       const payload: any = {
         name: editingProduct.name,
-        subcategory: editingProduct.subcategory,
+        subcategory: editingProduct.subcategory.split('::')[0],
+        category: category,
       };
       if (editingProduct.taxCodeType) payload.taxCodeType = editingProduct.taxCodeType;
       if (editingProduct.taxCodeValue) payload.taxCodeValue = editingProduct.taxCodeValue;
@@ -3030,9 +3060,9 @@ export default function AdminDashboard() {
                                     <Label>Select Subcategory <Required /></Label>
                                     <Select
                                       value={newProduct.subcategory}
-                                      onValueChange={(value) =>
-                                        setNewProduct((prev) => ({ ...prev, subcategory: value }))
-                                      }
+                                      onValueChange={(value) => {
+                                        setNewProduct((prev) => ({ ...prev, subcategory: value }));
+                                      }}
                                     >
                                       <SelectTrigger>
                                         <SelectValue placeholder="Choose a subcategory..." />
@@ -3042,7 +3072,7 @@ export default function AdminDashboard() {
                                           <div className="p-2 text-sm text-muted-foreground">No subcategories available</div>
                                         ) : (
                                           subCategories.map((sub: any) => (
-                                            <SelectItem key={sub.id} value={sub.name}>
+                                            <SelectItem key={sub.id} value={`${sub.name}::${sub.id}`}>
                                               {sub.name} <span className="text-xs text-muted-foreground">({sub.category})</span>
                                             </SelectItem>
                                           ))
@@ -3088,10 +3118,10 @@ export default function AdminDashboard() {
                                         <Input value={newSubCategory} onChange={(e) => setNewSubCategory(e.target.value)} placeholder="e.g. Commercial, Residential" />
                                       </div>
                                       <Button onClick={async () => {
-                                        await handleAddSubCategory();
+                                        const createdSub = await handleAddSubCategory();
                                         // if created, set it as selected in product select
-                                        if (newSubCategory.trim()) {
-                                          setNewProduct(prev => ({ ...prev, subcategory: newSubCategory.trim() }));
+                                        if (createdSub) {
+                                          setNewProduct(prev => ({ ...prev, subcategory: `${createdSub.name}::${createdSub.id}` }));
                                           setShowAddSubInline(false);
                                         }
                                       }} className="w-full bg-green-600 hover:bg-green-700">Add Subcategory</Button>
@@ -3307,7 +3337,18 @@ export default function AdminDashboard() {
                                         )}
                                         {canEditProducts && (
                                           <Button size="sm" variant="outline" onClick={() => {
-                                            setEditingProduct(mapProduct(product));
+                                            const mapped = mapProduct(product);
+                                            // Convert subcategory name to composite name::id for unique Select matching
+                                            if (mapped.subcategory) {
+                                              const match = subCategories.find((s: any) =>
+                                                s.name?.trim().toLowerCase() === mapped.subcategory?.trim().toLowerCase() &&
+                                                (!mapped.category_name || s.category?.trim().toLowerCase() === mapped.category_name?.trim().toLowerCase())
+                                              ) || subCategories.find((s: any) => s.name?.trim().toLowerCase() === mapped.subcategory?.trim().toLowerCase());
+                                              if (match) {
+                                                mapped.subcategory = `${match.name}::${match.id}`;
+                                              }
+                                            }
+                                            setEditingProduct(mapped);
                                           }}>
                                             Edit
                                           </Button>
@@ -3349,16 +3390,16 @@ export default function AdminDashboard() {
                               <Label>Select Subcategory <Required /></Label>
                               <Select
                                 value={editingProduct.subcategory}
-                                onValueChange={(value) =>
-                                  setEditingProduct((prev: any) => ({ ...prev, subcategory: value }))
-                                }
+                                onValueChange={(value) => {
+                                  setEditingProduct((prev: any) => ({ ...prev, subcategory: value }));
+                                }}
                               >
                                 <SelectTrigger className="max-h-64 overflow-y-auto">
                                   <SelectValue placeholder="Select subcategory" />
                                 </SelectTrigger>
                                 <SelectContent className="max-h-64">
                                   {subCategories.map((sub: any) => (
-                                    <SelectItem key={sub.id} value={sub.name}>
+                                    <SelectItem key={sub.id} value={`${sub.name}::${sub.id}`}>
                                       {sub.name} ({sub.category})
                                     </SelectItem>
                                   ))}

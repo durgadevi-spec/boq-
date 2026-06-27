@@ -234,6 +234,16 @@ export default function ManageProduct() {
         }
     });
 
+    const { data: approvedConfigsData } = useQuery({
+        queryKey: ["/api/product-approvals-approved"],
+        queryFn: async () => {
+            const res = await apiFetch("/api/product-approvals?status=approved");
+            if (!res.ok) return [];
+            const d = await res.json();
+            return d.approvals || [];
+        }
+    });
+
 
 
     const pendingProductIds = useMemo(() => {
@@ -280,9 +290,9 @@ export default function ManageProduct() {
     }, [filteredProducts]);
 
     const allApprovedConfigs = useMemo(() => {
-        if (!allApprovals) return [];
-        return (allApprovals as any[]).filter(a => a.status === "approved");
-    }, [allApprovals]);
+        if (!approvedConfigsData) return [];
+        return (approvedConfigsData as any[]).filter(a => a.status === "approved");
+    }, [approvedConfigsData]);
 
     const filteredCloneConfigs = useMemo(() => {
         return allApprovedConfigs.filter(c =>
@@ -522,6 +532,8 @@ export default function ManageProduct() {
                     setSelectedProduct(target);
                     // Load the config into the target product
                     applyConfig(d.approval, d.items, `Cloned configuration from "${config.product_name}" to "${target.name}"`);
+                    // Override loadedConfig to null so clone is editable (draft state)
+                    setLoadedConfig(null);
                 }
 
                 setIsCloneDialogOpen(false);
