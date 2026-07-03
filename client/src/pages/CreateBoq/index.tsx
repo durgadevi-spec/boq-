@@ -51,6 +51,7 @@ import { BoqItemRow } from './components/BoqItemRow';
 import { HistorySection } from './components/HistorySection';
 import { ApprovalsList } from './components/ApprovalsList';
 import { ApprovalPreviewDialog } from './components/ApprovalPreviewDialog';
+import { VersionHistoryModal } from '@/components/ui/VersionHistoryModal';
 
 
 // ─── Small UI Components ───────────────────────────────────────────────────────
@@ -827,7 +828,11 @@ export default function CreateBom() {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
-        const list: BOMVersion[] = data.versions || [];
+        let list: BOMVersion[] = data.versions || [];
+        const isReadOnlyMode = user?.role === 'finance_team' || user?.role === 'purchase_team';
+        if (isReadOnlyMode) {
+          list = list.filter((v: BOMVersion) => v.status === 'approved');
+        }
         setVersions(list);
 
         // Priority: 1. Previously selected ID (from URL or state), 2. First Draft, 3. Latest version
@@ -2826,8 +2831,8 @@ export default function CreateBom() {
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  const isVersionSubmitted = !!selectedVersion && ["submitted", "pending_approval", "approved", "edit_requested"].includes(selectedVersion.status);
-
+  const isReadOnlyMode = user?.role === 'finance_team' || user?.role === 'purchase_team';
+  const isVersionSubmitted = isReadOnlyMode || (!!selectedVersion && ["submitted", "pending_approval", "approved", "edit_requested"].includes(selectedVersion.status));
   // Budget reason logging removed for Generate BOM page
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -3042,7 +3047,7 @@ export default function CreateBom() {
                               className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-blue-600 gap-2 font-semibold"
                               title="View History"
                               onClick={() => setShowHistoryModal(true)}
-                              disabled={!selectedVersionId || history.length === 0}
+                              disabled={!selectedVersionId}
                             >
                               <History className="h-4 w-4" />
                               <span>History</span>
@@ -3060,23 +3065,25 @@ export default function CreateBom() {
                                 <span>Delete</span>
                               </Button>
                             )}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-emerald-600 gap-2 font-semibold"
-                              title="New Version"
-                              onClick={() => {
-                                if (versions.length > 0) {
-                                  const last = versions[0];
-                                  handleCreateNewVersion(confirm(`Copy items from V${last.version_number}?`));
-                                } else {
-                                  handleCreateNewVersion(false);
-                                }
-                              }}
-                            >
-                              <Clock className="h-4 w-4" />
-                              <span>New Version</span>
-                            </Button>
+                            {!isReadOnlyMode && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-emerald-600 gap-2 font-semibold"
+                                title="New Version"
+                                onClick={() => {
+                                  if (versions.length > 0) {
+                                    const last = versions[0];
+                                    handleCreateNewVersion(confirm(`Copy items from V${last.version_number}?`));
+                                  } else {
+                                    handleCreateNewVersion(false);
+                                  }
+                                }}
+                              >
+                                <Clock className="h-4 w-4" />
+                                <span>New Version</span>
+                              </Button>
+                            )}
                           </div>
                         </div>
                       )}
@@ -3090,8 +3097,9 @@ export default function CreateBom() {
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase">Project Status:</span>
                             <select
-                              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white font-semibold focus:ring-1 ring-blue-400 outline-none"
+                              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white font-semibold focus:ring-1 ring-blue-400 outline-none disabled:bg-slate-50 disabled:text-slate-500"
                               value={selProj?.project_status || 'started'}
+                              disabled={isReadOnlyMode}
                               onChange={async (e) => {
                                 const newStatus = e.target.value;
                                 try {
@@ -3110,53 +3118,55 @@ export default function CreateBom() {
                         );
                       })()}
 
-                      <div className="flex gap-2 h-9 ml-auto">
-                        <Button onClick={() => setShowTemplateManager(true)} variant="outline" className="border-slate-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2" disabled={isVersionSubmitted || !selectedVersionId}>
-                          <History className="h-4 w-4" /> Load Template
-                        </Button>
-
-                        {approvedProposals.length > 0 && (
-                          <Button
-                            onClick={() => {
-                              setSelectedProposalImportIds([]);
-                              setShowProposalImportDialog(true);
-                            }}
-                            variant="outline"
-                            className="border-emerald-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2 text-emerald-700 hover:bg-emerald-50"
-                            disabled={isVersionSubmitted || !selectedVersionId}
-                          >
-                            <CheckCircle2 className="h-4 w-4" /> Import Approved Proposals ({approvedProposals.length})
+                      {!isReadOnlyMode && (
+                        <div className="flex gap-2 h-9 ml-auto">
+                          <Button onClick={() => setShowTemplateManager(true)} variant="outline" className="border-slate-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2" disabled={isVersionSubmitted || !selectedVersionId}>
+                            <History className="h-4 w-4" /> Load Template
                           </Button>
-                        )}
-                        <Button onClick={findDuplicatesInBOM} variant="outline" className="border-amber-200 h-full px-4 text-xs font-bold shadow-sm bg-amber-50 text-amber-700 hover:bg-amber-100 flex items-center gap-2" disabled={!selectedProjectId}>
-                          <AlertTriangle className="h-4 w-4" /> Check Duplicates
-                        </Button>
-                        <Button
-                          onClick={handleRefreshCategories}
-                          variant="outline"
-                          className="border-emerald-200 h-full px-4 text-xs font-bold shadow-sm bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-2"
-                          disabled={!selectedVersionId || isRefreshingCategories || boqItems.length === 0}
-                          title="Refresh: detect and update any item categories that changed in the master product library"
-                        >
-                          {isRefreshingCategories
-                            ? <Loader2 className="h-4 w-4 animate-spin" />
-                            : <RefreshCw className="h-4 w-4" />}
-                          {isRefreshingCategories ? "Refreshing..." : "Refresh"}
-                        </Button>
-                        <Button onClick={() => setShowCompareDialog(true)} variant="outline" className="border-blue-200 h-full px-4 text-xs font-bold shadow-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-2" disabled={!selectedProjectId}>
-                          <ChevronsUpDown className="h-4 w-4" /> Compare
-                        </Button>
-                        <Button onClick={handleAddProduct} className="bg-primary text-white h-full px-5 text-xs font-bold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving}>
-                          {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
-                          + Add Product
-                        </Button>
 
-                        <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-full px-5 text-xs font-bold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving}>
-                          {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
-                          + Add Item
-                        </Button>
+                          {approvedProposals.length > 0 && (
+                            <Button
+                              onClick={() => {
+                                setSelectedProposalImportIds([]);
+                                setShowProposalImportDialog(true);
+                              }}
+                              variant="outline"
+                              className="border-emerald-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2 text-emerald-700 hover:bg-emerald-50"
+                              disabled={isVersionSubmitted || !selectedVersionId}
+                            >
+                              <CheckCircle2 className="h-4 w-4" /> Import Approved Proposals ({approvedProposals.length})
+                            </Button>
+                          )}
+                          <Button onClick={findDuplicatesInBOM} variant="outline" className="border-amber-200 h-full px-4 text-xs font-bold shadow-sm bg-amber-50 text-amber-700 hover:bg-amber-100 flex items-center gap-2" disabled={!selectedProjectId}>
+                            <AlertTriangle className="h-4 w-4" /> Check Duplicates
+                          </Button>
+                          <Button
+                            onClick={handleRefreshCategories}
+                            variant="outline"
+                            className="border-emerald-200 h-full px-4 text-xs font-bold shadow-sm bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-2"
+                            disabled={!selectedVersionId || isRefreshingCategories || boqItems.length === 0}
+                            title="Refresh: detect and update any item categories that changed in the master product library"
+                          >
+                            {isRefreshingCategories
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <RefreshCw className="h-4 w-4" />}
+                            {isRefreshingCategories ? "Refreshing..." : "Refresh"}
+                          </Button>
+                          <Button onClick={() => setShowCompareDialog(true)} variant="outline" className="border-blue-200 h-full px-4 text-xs font-bold shadow-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-2" disabled={!selectedProjectId}>
+                            <ChevronsUpDown className="h-4 w-4" /> Compare
+                          </Button>
+                          <Button onClick={handleAddProduct} className="bg-primary text-white h-full px-5 text-xs font-bold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving}>
+                            {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+                            + Add Product
+                          </Button>
 
-                      </div>
+                          <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-full px-5 text-xs font-bold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving}>
+                            {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+                            + Add Item
+                          </Button>
+
+                        </div>
+                      )}
                     </div>
 
 
@@ -3244,25 +3254,16 @@ export default function CreateBom() {
                 </CardContent>
 
                 {/* History Modal */}
-                <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
-                  <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                      <DialogTitle className="text-lg font-bold flex items-center gap-2">
-                        <History className="h-5 w-5 text-blue-600" />
-                        Approval & Activity History
-                      </DialogTitle>
-                      <DialogDescription>
-                        Tracking all major actions and approval status changes.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="py-4 max-h-[60vh] overflow-y-auto px-1">
-                      <HistorySection history={history} />
-                    </div>
-                    <DialogFooter>
-                      <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <VersionHistoryModal
+                  isOpen={showHistoryModal}
+                  onOpenChange={setShowHistoryModal}
+                  versionId={selectedVersionId}
+                  projectId={selectedProjectId}
+                  boqItems={boqItems}
+                  isAdmin={user?.role === 'admin' || user?.role === 'software_team'}
+                  projectName={selectedProject?.name}
+                  clientName={selectedProject?.client}
+                />
 
                 <Dialog open={showProposalImportDialog} onOpenChange={setShowProposalImportDialog}>
                   <DialogContent className="sm:max-w-[700px]">
@@ -3777,9 +3778,13 @@ export default function CreateBom() {
 
                     {/* Version History Modal */}
                     <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                      <Button onClick={withBudgetCheck(() => currentProjectValue, handleSaveProject)} variant="outline" disabled={isVersionSubmitted || Object.keys(editedFields).length === 0}>Save Draft</Button>
-                      <Button onClick={() => handleSubmitVersion("submitted")} variant="outline" className="border-primary text-primary hover:bg-primary/5 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Lock Version</Button>
-                      <Button onClick={() => handleSubmitVersion("pending_approval")} variant="default" className="bg-primary hover:bg-primary/90 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Submit for Approval</Button>
+                      {!isReadOnlyMode && (
+                        <>
+                          <Button onClick={withBudgetCheck(() => currentProjectValue, handleSaveProject)} variant="outline" disabled={isVersionSubmitted || Object.keys(editedFields).length === 0}>Save Draft</Button>
+                          <Button onClick={() => handleSubmitVersion("submitted")} variant="outline" className="border-primary text-primary hover:bg-primary/5 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Lock Version</Button>
+                          <Button onClick={() => handleSubmitVersion("pending_approval")} variant="default" className="bg-primary hover:bg-primary/90 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Submit for Approval</Button>
+                        </>
+                      )}
                       <Button onClick={handleDownloadExcel} variant="outline" disabled={boqItems.length === 0}>Download Excel</Button>
                       <Button onClick={handleDownloadPdf} variant="outline" disabled={boqItems.length === 0}>Download PDF</Button>
                     </div>
@@ -3802,15 +3807,19 @@ export default function CreateBom() {
 
       {/* Small floating Add buttons at bottom-right (duplicate of top actions) */}
       <div className="fixed right-6 bottom-24 z-50 flex flex-col items-end gap-2 md:gap-3">
-        <Button onClick={handleAddProduct} className="bg-primary text-white h-8 px-3 text-xs font-semibold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving} title="Add Product">
-          {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
-          + Add Product
-        </Button>
+        {!isReadOnlyMode && (
+          <>
+            <Button onClick={handleAddProduct} className="bg-primary text-white h-8 px-3 text-xs font-semibold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving} title="Add Product">
+              {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+              + Add Product
+            </Button>
 
-        <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-8 px-3 text-xs font-semibold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving} title="Add Item">
-          {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
-          + Add Item
-        </Button>
+            <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-8 px-3 text-xs font-semibold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId || !bomButtonsEnabled || isSaving} title="Add Item">
+              {isSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+              + Add Item
+            </Button>
+          </>
+        )}
 
         <Button
           onClick={() => setIsCompactView(!isCompactView)}
@@ -4660,11 +4669,11 @@ export default function CreateBom() {
 
       {/* Floating Project Pricing Indicator */}
       {activePpMatches && activePpMatches.length > 0 && (
-        <div 
+        <div
           className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 fade-in duration-500"
           title="Project Pricing Available"
         >
-          <Button 
+          <Button
             onClick={() => document.getElementById('project-pricing-banner')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
             className="bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg h-14 w-14 p-0 flex items-center justify-center gap-2 overflow-hidden group transition-all duration-300 hover:w-auto hover:px-4 border-2 border-white/20"
           >

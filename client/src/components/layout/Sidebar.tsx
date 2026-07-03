@@ -982,13 +982,13 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             )}
 
           {/* BOQ / Projects Section */}
-          {(isVisible('generate_bom', isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam) ||
+          {(isVisible('generate_bom', isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam || isFinance) ||
             isVisible('generate_po', (isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam) && !isProductManager) ||
             isVisible('finalize_boq', isAdminOrSoftware || isFinance)) && (
               <div className="space-y-0.5">
                 <AccordionHeader sectionKey="boq" icon={FileStack} label="BOQ / Projects" />
                 <AccordionContent sectionKey="boq">
-                  <SidebarNavItem id="generate_bom" href="/create-bom" icon={ShoppingCart} label="Generate BOM" condition={isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam} />
+                  <SidebarNavItem id="generate_bom" href="/create-bom" icon={ShoppingCart} label="Generate BOM" condition={isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam || isFinance} />
                   <SidebarNavItem id="generate_po" href="/generate-po" icon={FileText} label="Generate PO" condition={(isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam) && !isProductManager} />
                   <SidebarNavItem id="finalize_boq" href="/finalize-bom" icon={CheckCircle2} label="Finalize BOQ" condition={isAdminOrSoftware || isFinance} />
                 </AccordionContent>

@@ -1052,6 +1052,7 @@ export default function FinalizeBoq() {
     try { const saved = localStorage.getItem('finalize_pdf_export_cols'); return saved ? JSON.parse(saved) : []; } catch { return []; }
   });
   const [hiddenPredefinedCols, setHiddenPredefinedCols] = useState<Record<string, boolean>>({});
+  const [includeGrandTotal, setIncludeGrandTotal] = useState<boolean>(true);
 
 
 
@@ -2813,18 +2814,31 @@ export default function FinalizeBoq() {
   const handleFinanceSubmitForApproval = async () => {
     if (!activeVersionId) return;
     try {
-      await apiFetch(`/api/boq-versions/${activeVersionId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "submitted",
-          is_locked: true,
-          is_boq_submission: true
-        }),
-      });
+      if (activeVersion?.type === 'bom') {
+        // Lock BOM version via global settings (same as handleSubmitVersion does for admin)
+        await apiFetch(`/api/global-settings/finalize_lock_${activeVersionId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: true })
+        });
+        setBomFinalizeLocked(true);
+      } else {
+        await apiFetch(`/api/boq-versions/${activeVersionId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: "submitted",
+            is_locked: true,
+            is_boq_submission: true
+          }),
+        });
+      }
 
       const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=boq`);
       if (boqResp.ok) setBoqVersions((await boqResp.json()).versions || []);
+
+      const bomRefresh = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=bom`);
+      if (bomRefresh.ok) setBomVersions((await bomRefresh.json()).versions || []);
 
       toast({
         title: "Success",
@@ -3284,24 +3298,26 @@ export default function FinalizeBoq() {
         sheetData.push(row);
       });
 
-      const footerRow: any[] = Array(selectedExportCols.length).fill("");
-      selectedExportCols.forEach((colName, idx) => {
-        if (colName === "Product / Material") footerRow[idx] = "GRAND TOTAL";
-        else if (colName === "Total Value (₹)") {
-          footerRow[idx] = hideSystemTotalFooter ? "" : (roundOff ? Math.round(calculatedColumnTotals.totalValueSum) : Number(calculatedColumnTotals.totalValueSum.toFixed(2)));
-        } else if (colName === "Rate / Unit") {
-          footerRow[idx] = roundOff ? Math.round(calculatedColumnTotals.totalRateSum) : Number(calculatedColumnTotals.totalRateSum.toFixed(2));
-        } else if (colName === "Override Total") {
-          footerRow[idx] = roundOff ? Math.round(calculatedColumnTotals.overrideTotalSum) : Number(calculatedColumnTotals.overrideTotalSum.toFixed(2));
-        } else if (colName === "Qty" || colName === "Description / Location" || colName === "HSN" || colName === "SAC" || colName === "Unit" || colName === "Override Rate") {
-          footerRow[idx] = "";
-        } else if (allCols.some(c => c.name === colName)) {
-          const colIdx = allCols.findIndex(c => c.name === colName);
-          const col = allCols[colIdx];
-          footerRow[idx] = col.hideTotal ? "" : (roundOff ? Math.round(calculatedColumnTotals.totals[colIdx]) : Number(calculatedColumnTotals.totals[colIdx].toFixed(2)));
-        }
-      });
-      sheetData.push(footerRow);
+      if (includeGrandTotal) {
+        const footerRow: any[] = Array(selectedExportCols.length).fill("");
+        selectedExportCols.forEach((colName, idx) => {
+          if (colName === "Product / Material") footerRow[idx] = "GRAND TOTAL";
+          else if (colName === "Total Value (₹)") {
+            footerRow[idx] = hideSystemTotalFooter ? "" : (roundOff ? Math.round(calculatedColumnTotals.totalValueSum) : Number(calculatedColumnTotals.totalValueSum.toFixed(2)));
+          } else if (colName === "Rate / Unit") {
+            footerRow[idx] = roundOff ? Math.round(calculatedColumnTotals.totalRateSum) : Number(calculatedColumnTotals.totalRateSum.toFixed(2));
+          } else if (colName === "Override Total") {
+            footerRow[idx] = roundOff ? Math.round(calculatedColumnTotals.overrideTotalSum) : Number(calculatedColumnTotals.overrideTotalSum.toFixed(2));
+          } else if (colName === "Qty" || colName === "Description / Location" || colName === "HSN" || colName === "SAC" || colName === "Unit" || colName === "Override Rate") {
+            footerRow[idx] = "";
+          } else if (allCols.some(c => c.name === colName)) {
+            const colIdx = allCols.findIndex(c => c.name === colName);
+            const col = allCols[colIdx];
+            footerRow[idx] = col.hideTotal ? "" : (roundOff ? Math.round(calculatedColumnTotals.totals[colIdx]) : Number(calculatedColumnTotals.totals[colIdx].toFixed(2)));
+          }
+        });
+        sheetData.push(footerRow);
+      }
 
       if (termsAndConditions && termsAndConditions.trim()) {
         sheetData.push([]); // Spacer
@@ -3602,20 +3618,23 @@ export default function FinalizeBoq() {
         }
       });
 
-      const grandTotalRow: any[] = Array(selectedPdfExportCols.length).fill("");
-      const pIdx = selectedPdfExportCols.indexOf("Product / Material");
-      if (pIdx !== -1) grandTotalRow[pIdx] = "GRAND TOTAL";
+      let grandTotalRow: any[] | null = null;
+      if (includeGrandTotal) {
+        grandTotalRow = Array(selectedPdfExportCols.length).fill("");
+        const pIdx = selectedPdfExportCols.indexOf("Product / Material");
+        if (pIdx !== -1) grandTotalRow[pIdx] = "GRAND TOTAL";
 
-      let gtValIdx = -1;
-      if (grandTotalColumn === "Total Value (₹)") gtValIdx = selectedPdfExportCols.indexOf("Total");
-      else if (grandTotalColumn === "Override Total") gtValIdx = selectedPdfExportCols.indexOf("Override Total");
-      else gtValIdx = selectedPdfExportCols.indexOf(grandTotalColumn);
+        let gtValIdx = -1;
+        if (grandTotalColumn === "Total Value (₹)") gtValIdx = selectedPdfExportCols.indexOf("Total");
+        else if (grandTotalColumn === "Override Total") gtValIdx = selectedPdfExportCols.indexOf("Override Total");
+        else gtValIdx = selectedPdfExportCols.indexOf(grandTotalColumn);
 
-      const gtStr = fmtNum(currentProjectValue);
-      if (gtValIdx !== -1) {
-        grandTotalRow[gtValIdx] = gtStr;
-      } else {
-        grandTotalRow[selectedPdfExportCols.length - 1] = gtStr;
+        const gtStr = fmtNum(currentProjectValue);
+        if (gtValIdx !== -1) {
+          grandTotalRow[gtValIdx] = gtStr;
+        } else {
+          grandTotalRow[selectedPdfExportCols.length - 1] = gtStr;
+        }
       }
 
       // 4. Logo Fetching
@@ -3796,7 +3815,7 @@ export default function FinalizeBoq() {
         },
         theme: "grid",
         showFoot: 'lastPage',
-        foot: [footerRow, grandTotalRow],
+        foot: grandTotalRow ? [footerRow, grandTotalRow] : [footerRow],
         footStyles: {
           fillColor: [220, 220, 220],
           textColor: [0, 0, 0],
@@ -4433,6 +4452,19 @@ export default function FinalizeBoq() {
                 </div>
               ))}
             </div>
+            <div className="flex items-center space-x-2 py-2 border-t border-slate-100 mt-2">
+              <Checkbox
+                id="excel-include-grand-total"
+                checked={includeGrandTotal}
+                onCheckedChange={(checked) => setIncludeGrandTotal(!!checked)}
+              />
+              <label
+                htmlFor="excel-include-grand-total"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Include Grand Total
+              </label>
+            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsExportDialogOpen(false)}>Cancel</Button>
               <Button className="bg-green-600 hover:bg-green-700" onClick={performExcelExport}>Download Excel</Button>
@@ -4499,6 +4531,19 @@ export default function FinalizeBoq() {
                   </label>
                 </div>
               ))}
+            </div>
+            <div className="flex items-center space-x-2 py-2 border-t border-slate-100 mt-2">
+              <Checkbox
+                id="pdf-include-grand-total"
+                checked={includeGrandTotal}
+                onCheckedChange={(checked) => setIncludeGrandTotal(!!checked)}
+              />
+              <label
+                htmlFor="pdf-include-grand-total"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Include Grand Total
+              </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsPdfExportDialogOpen(false)}>Cancel</Button>
@@ -5346,7 +5391,7 @@ export default function FinalizeBoq() {
                                   // Persist to database for all items
                                   await Promise.all(
                                     boqItems.map(item =>
-                                      saveItemLayout(item.id, undefined, undefined, undefined, undefined, newVal === "" ? null : newVal, undefined, undefined, globalOverrideType)
+                                      saveItemLayout(item.id, undefined, undefined, undefined, undefined, newVal === "" ? undefined : newVal, undefined, undefined, globalOverrideType)
                                     )
                                   );
                                 }}
@@ -5691,7 +5736,7 @@ export default function FinalizeBoq() {
                                       const val = e.target.value;
                                       setOverrideRates(prev => ({ ...prev, [boqItem.id]: val }));
                                       setOverrideTypes(prev => ({ ...prev, [boqItem.id]: globalOverrideType }));
-                                      await saveItemLayout(boqItem.id, undefined, undefined, undefined, undefined, val === "" ? null : val, undefined, undefined, globalOverrideType);
+                                      await saveItemLayout(boqItem.id, undefined, undefined, undefined, undefined, val === "" ? undefined : val, undefined, undefined, globalOverrideType);
                                     }}
                                     className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-gray-300 outline-none bg-gray-50 text-center font-semibold h-6 ${getIsModified(boqItem.id, "rate", overrideRates[boqItem.id] ?? "") ? "text-blue-600 font-bold" : ""}`}
                                     placeholder="0.00"
@@ -6556,6 +6601,15 @@ export default function FinalizeBoq() {
         isOpen={isHistoryModalOpen}
         onOpenChange={setIsHistoryModalOpen}
         versionId={historyModalVersionId}
+        projectId={selectedProjectId}
+        boqItems={boqItems}
+        isAdmin={user?.role === 'admin'}
+        projectName={selectedProject?.name}
+        clientName={selectedProject?.client}
+        onCompareClick={() => {
+          setIsHistoryModalOpen(false);
+          setIsCompareModalOpen(true);
+        }}
       />
 
       {/* Load Override Rates History Dialog */}

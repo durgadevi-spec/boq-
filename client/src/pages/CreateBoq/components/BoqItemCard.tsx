@@ -362,29 +362,8 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
       </div>
 
       {/* Content Area */}
-      <div className={`px-4 ${isCompactView ? 'py-1.5' : 'py-3'} space-y-3`}>
-        {isCompactView ? (
-          <div className="flex flex-wrap gap-2 items-center justify-end">
-            {!tableData.is_finalized && (
-              <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted || !bomButtonsEnabled} onClick={() => handleAddItem(boqItem.id)}>+ Add Item</Button>
-            )}
-            <Button variant="default" size="sm" className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700 text-white" disabled={isVersionSubmitted || tableData.is_finalized} onClick={() => handleFinalizeProduct(boqItem.id)}>Finalize</Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[10px] px-2 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 font-bold"
-              onClick={() => onAnalysis(productName)}
-            >
-              <History className="h-3 w-3 mr-1" />
-              Analysis
-            </Button>
-            <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted} onClick={() => onSaveAsTemplate?.(boqItem)}>Save as Template</Button>
-            {!isBifProd && (
-              <Button variant="destructive" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted}
-                onClick={() => setDeleteConfirmOpen(true)}>Delete</Button>
-            )}
-          </div>
-        ) : (
+      {!isCompactView && (
+      <div className="px-4 py-3 space-y-3">
           <div className="space-y-3">
             {/* Row 2: Area + Add Item + Finalize */}
             <div className="flex flex-wrap items-center gap-3">
@@ -563,8 +542,8 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
               </div>
             )}
           </div>
-        )}
       </div>
+      )}
 
       {/* Items Table */}
       {isExpanded && (

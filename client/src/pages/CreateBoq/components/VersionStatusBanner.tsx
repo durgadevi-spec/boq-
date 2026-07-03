@@ -98,4 +98,4 @@ export function VersionStatusBanner({ version }: { version: BOMVersion }) {
     </div>
   );
   return null;
-}
+}

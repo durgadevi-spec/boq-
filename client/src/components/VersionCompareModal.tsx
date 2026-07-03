@@ -20,6 +20,7 @@ import apiFetch from "@/lib/api";
 import { computeBoq } from "@/lib/boqCalc";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import XLSX from 'xlsx-js-style';
 import {
   ChevronLeft,
   ChevronRight,
@@ -289,35 +290,101 @@ export function VersionCompareModal({
   // Summary stats
   const summaryStats = useMemo(() => {
     if (!showComparison || !selectedColumns.includes("Total")) return null;
-    let increased = 0, decreased = 0, unchanged = 0, added = 0, removed = 0;
+    let increased = 0, decreased = 0, unchanged = 0, added = 0, removed = 0, modified = 0;
+    let baseTotal = 0, compareTotal = 0;
+    
     comparisonData.forEach(row => {
+      const bTotal = row.base ? (row.base["Total"] || 0) : 0;
+      const cTotal = row.compare ? (row.compare["Total"] || 0) : 0;
+      baseTotal += bTotal;
+      compareTotal += cTotal;
+
       if (!row.base) { added++; return; }
       if (!row.compare) { removed++; return; }
-      const diff = (row.compare["Total"] || 0) - (row.base["Total"] || 0);
+      
+      const diff = cTotal - bTotal;
       if (Math.abs(diff) < 0.01) unchanged++;
-      else if (diff > 0) increased++;
-      else decreased++;
+      else {
+        modified++;
+        if (diff > 0) increased++;
+        else decreased++;
+      }
     });
-    return { increased, decreased, unchanged, added, removed, total: comparisonData.length };
+    
+    const costDifference = compareTotal - baseTotal;
+    
+    return { increased, decreased, unchanged, added, removed, modified, total: comparisonData.length, baseTotal, compareTotal, costDifference };
   }, [comparisonData, showComparison, selectedColumns]);
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     try {
       const doc = new jsPDF({ orientation: "landscape" });
-
-      doc.setFontSize(16);
-      doc.setFont("helvetica", "bold");
-      doc.text("Version Comparison Report", 14, 15);
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const marginX = 10;
 
       const selProj = projects.find(p => p.id === selectedProjectId);
       const baseVer = versions.find(v => v.id === baseVersionId);
       const compVer = versions.find(v => v.id === selectedVersionId);
 
-      doc.setFontSize(10);
+      // --- Professional Header Box ---
+      const headerBoxY = 8;
+      const headerBoxH = 28;
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.5);
+      const boxRight = pageWidth - marginX;
+      const boxBottom = headerBoxY + headerBoxH;
+      doc.line(marginX, headerBoxY, boxRight, headerBoxY);
+      doc.line(marginX, headerBoxY, marginX, boxBottom);
+      doc.line(boxRight, headerBoxY, boxRight, boxBottom);
+
+      // Logo
+      let logoDataUrl: string | null = null;
+      try {
+        const resp = await fetch("/image.png");
+        const blob = await resp.blob();
+        const reader = new FileReader();
+        logoDataUrl = await new Promise<string | null>((resolve) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        console.warn("Could not load logo for PDF header", e);
+      }
+      if (logoDataUrl) {
+        const imgProps: any = doc.getImageProperties(logoDataUrl);
+        const imgH = 22;
+        const imgW = (imgProps.width / imgProps.height) * imgH;
+        doc.addImage(logoDataUrl, "PNG", marginX + 2, headerBoxY + 3, imgW, imgH);
+      }
+
+      doc.setFontSize(15);
+      doc.setFont("helvetica", "bold");
+      doc.text("VERSION COMPARISON REPORT", pageWidth / 2, headerBoxY + 13, { align: "center" });
+
+      const metaX = pageWidth - marginX - 2;
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Project: ${selProj?.name || "-"}`, metaX, headerBoxY + 7, { align: "right" });
       doc.setFont("helvetica", "normal");
-      doc.text(`Project: ${selProj?.name || "-"}`, 14, 23);
-      doc.text(`Compared Versions: V${baseVer?.version_number} vs V${compVer?.version_number}`, 14, 28);
-      doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 33);
+      doc.text(`Compared: V${baseVer?.version_number} vs V${compVer?.version_number}`, metaX, headerBoxY + 13, { align: "right" });
+      doc.text(`Date: ${new Date().toLocaleDateString()}`, metaX, headerBoxY + 19, { align: "right" });
+      doc.text(`Generated: ${new Date().toLocaleTimeString()}`, metaX, headerBoxY + 25, { align: "right" });
+
+      // --- Summary Section ---
+      let startY = boxBottom + 2;
+      if (summaryStats) {
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("Summary:", marginX, startY + 5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        const summaryLine1 = `Total Items: ${summaryStats.total}  |  Added: ${summaryStats.added}  |  Deleted: ${summaryStats.removed}  |  Modified: ${summaryStats.modified}`;
+        const summaryLine2 = `Prev Version Total: \u20b9${Number(summaryStats.baseTotal.toFixed(2)).toLocaleString('en-IN')}  |  Curr Version Total: \u20b9${Number(summaryStats.compareTotal.toFixed(2)).toLocaleString('en-IN')}  |  Cost Difference: \u20b9${Math.abs(Number(summaryStats.costDifference.toFixed(2))).toLocaleString('en-IN')} ${summaryStats.costDifference > 0 ? '(Increase)' : summaryStats.costDifference < 0 ? '(Decrease)' : ''}`;
+        doc.text(summaryLine1, marginX + 20, startY + 5);
+        doc.text(summaryLine2, marginX, startY + 10);
+        startY += 14;
+      }
 
       const headRows = [
         [{ content: 'Product', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } }, ...selectedColumns.map(c => ({ content: c, colSpan: 2, styles: { halign: 'center' as const } }))],
@@ -342,23 +409,37 @@ export function VersionCompareModal({
       autoTable(doc, {
         head: headRows,
         body: bodyRows,
-        startY: 40,
+        startY: startY,
+        margin: { left: marginX, right: marginX },
         theme: 'grid',
-        styles: { fontSize: 8, cellPadding: 1.5 },
-        headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+        styles: { fontSize: 8, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.3 },
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold', lineColor: [0, 0, 0], lineWidth: 0.4 },
         didParseCell: function (data) {
-          if (data.section === 'body' && data.column.index > 0) {
-            data.cell.styles.halign = 'right' as const;
-            const colIdx = Math.floor((data.column.index - 1) / 2);
-            if (colIdx >= 0 && colIdx < selectedColumns.length) {
-              const colName = selectedColumns[colIdx];
-              const rowData = comparisonData[data.row.index];
-              const baseVal = rowData.base ? (rowData.base[colName] || 0) : 0;
-              const compVal = rowData.compare ? (rowData.compare[colName] || 0) : 0;
-              if (Math.abs(baseVal - compVal) > 0.01) {
-                const isBaseCol = (data.column.index - 1) % 2 === 0;
-                if (!isBaseCol) {
-                  data.cell.styles.textColor = compVal > baseVal ? [220, 38, 38] : [22, 163, 74];
+          if (data.section === 'body') {
+            if (data.column.index > 0) {
+              data.cell.styles.halign = 'right' as const;
+            }
+            const rowData = comparisonData[data.row.index];
+            if (rowData) {
+              // Row coloring for added/deleted items
+              if (!rowData.base) {
+                data.cell.styles.fillColor = [220, 252, 231]; // green-100
+              } else if (!rowData.compare) {
+                data.cell.styles.fillColor = [254, 226, 226]; // red-100
+              }
+              // Value-level coloring for modified items
+              if (data.column.index > 0) {
+                const colIdx = Math.floor((data.column.index - 1) / 2);
+                if (colIdx >= 0 && colIdx < selectedColumns.length) {
+                  const colName = selectedColumns[colIdx];
+                  const baseVal = rowData.base ? (rowData.base[colName] || 0) : 0;
+                  const compVal = rowData.compare ? (rowData.compare[colName] || 0) : 0;
+                  if (Math.abs(baseVal - compVal) > 0.01) {
+                    const isBaseCol = (data.column.index - 1) % 2 === 0;
+                    if (!isBaseCol) {
+                      data.cell.styles.textColor = compVal > baseVal ? [220, 38, 38] : [22, 163, 74];
+                    }
+                  }
                 }
               }
             }
@@ -371,6 +452,71 @@ export function VersionCompareModal({
     } catch (e) {
       console.error(e);
       toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+    }
+  };
+
+  const handleDownloadExcel = () => {
+    try {
+      const selProj = projects.find(p => p.id === selectedProjectId);
+      const baseVer = versions.find(v => v.id === baseVersionId);
+      const compVer = versions.find(v => v.id === selectedVersionId);
+      
+      const wsData: any[][] = [];
+      
+      wsData.push(["Version Comparison Report"]);
+      wsData.push([`Project:`, selProj?.name || "-"]);
+      wsData.push([`Compared Versions:`, `V${baseVer?.version_number} vs V${compVer?.version_number}`]);
+      wsData.push([`Date:`, new Date().toLocaleDateString()]);
+      wsData.push([]);
+
+      // Summary
+      if (summaryStats) {
+        wsData.push(["Comparison Summary"]);
+        wsData.push(["Total Items", summaryStats.total]);
+        wsData.push(["Added", summaryStats.added]);
+        wsData.push(["Deleted", summaryStats.removed]);
+        wsData.push(["Modified", summaryStats.modified]);
+        wsData.push(["Previous Version Total", summaryStats.baseTotal]);
+        wsData.push(["Current Version Total", summaryStats.compareTotal]);
+        wsData.push(["Cost Difference", summaryStats.costDifference]);
+        wsData.push([]);
+      }
+
+      // Headers
+      const head1 = ["Product"];
+      const head2 = [""];
+      selectedColumns.forEach(c => {
+        head1.push(c, "");
+        head2.push(`V${baseVer?.version_number}`, `V${compVer?.version_number}`);
+      });
+      wsData.push(head1);
+      wsData.push(head2);
+
+      // Data
+      comparisonData.forEach(row => {
+        const rowData: any[] = [row.name];
+        selectedColumns.forEach(col => {
+          const isBaseMissing = !row.base;
+          const isCompMissing = !row.compare;
+          const baseVal = row.base ? (row.base[col] || 0) : 0;
+          const compVal = row.compare ? (row.compare[col] || 0) : 0;
+          
+          rowData.push(
+            isBaseMissing ? "Not Added" : baseVal,
+            isCompMissing ? "Removed" : compVal
+          );
+        });
+        wsData.push(rowData);
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, "Comparison");
+      XLSX.writeFile(wb, `Comparison_${selProj?.name}_V${baseVer?.version_number}_vs_V${compVer?.version_number}.xlsx`);
+      toast({ title: "Success", description: "Comparison Excel downloaded" });
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error", description: "Failed to generate Excel", variant: "destructive" });
     }
   };
 
@@ -392,13 +538,22 @@ export function VersionCompareModal({
             </div>
             <div className="flex items-center gap-2 mr-8">
               {showComparison && (
-                <Button
-                  onClick={handleDownloadPdf}
-                  size="sm"
-                  className="h-8 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 transition-colors px-3 gap-1.5 rounded-md"
-                >
-                  <Download className="h-3.5 w-3.5" /> Export PDF
-                </Button>
+                <>
+                  <Button
+                    onClick={handleDownloadPdf}
+                    size="sm"
+                    className="h-8 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 transition-colors px-3 gap-1.5 rounded-md"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Export PDF
+                  </Button>
+                  <Button
+                    onClick={handleDownloadExcel}
+                    size="sm"
+                    className="h-8 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 transition-colors px-3 gap-1.5 rounded-md"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Export Excel
+                  </Button>
+                </>
               )}
             </div>
           </div>
@@ -501,26 +656,44 @@ export function VersionCompareModal({
                     </button>
                   </div>
 
-                  {/* Summary pills */}
+                  {/* Comprehensive Summary Cards */}
                   {summaryStats && (
-                    <div className="flex items-center gap-1.5 text-[11px]">
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{summaryStats.total} items</span>
-                      {summaryStats.increased > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-red-50 text-red-500 flex items-center gap-1">
-                          <TrendingUp className="h-3 w-3" />{summaryStats.increased} up
-                        </span>
-                      )}
-                      {summaryStats.decreased > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 flex items-center gap-1">
-                          <TrendingDown className="h-3 w-3" />{summaryStats.decreased} down
-                        </span>
-                      )}
-                      {summaryStats.added > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-600">{summaryStats.added} new</span>
-                      )}
-                      {summaryStats.removed > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-orange-50 text-orange-500">{summaryStats.removed} removed</span>
-                      )}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 w-full">
+                      <div className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Items Summary</div>
+                        <div className="flex gap-2 text-xs">
+                          <span className="text-sky-600 font-medium">{summaryStats.added} Added</span>
+                          <span className="text-orange-500 font-medium">{summaryStats.removed} Deleted</span>
+                          <span className="text-slate-600 font-medium">{summaryStats.modified} Modified</span>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Prev Version Total</div>
+                        <div className="text-sm font-bold text-slate-800 tabular-nums">
+                          ₹{Number(summaryStats.baseTotal.toFixed(2)).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Curr Version Total</div>
+                        <div className="text-sm font-bold text-slate-800 tabular-nums">
+                          ₹{Number(summaryStats.compareTotal.toFixed(2)).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      
+                      <div className={`p-3 rounded-lg border shadow-sm ${summaryStats.costDifference > 0 ? 'bg-red-50 border-red-100' : summaryStats.costDifference < 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
+                        <div className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${summaryStats.costDifference > 0 ? 'text-red-500' : summaryStats.costDifference < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                          Cost Difference
+                        </div>
+                        <div className={`text-sm font-bold tabular-nums flex items-center gap-1 ${summaryStats.costDifference > 0 ? 'text-red-600' : summaryStats.costDifference < 0 ? 'text-emerald-700' : 'text-slate-700'}`}>
+                          {summaryStats.costDifference > 0 ? <TrendingUp className="h-4 w-4" /> : summaryStats.costDifference < 0 ? <TrendingDown className="h-4 w-4" /> : null}
+                          ₹{Math.abs(Number(summaryStats.costDifference.toFixed(2))).toLocaleString('en-IN')}
+                          <span className="text-[10px] font-normal opacity-80">
+                            {summaryStats.costDifference > 0 ? '(Increase)' : summaryStats.costDifference < 0 ? '(Decrease)' : ''}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -642,10 +815,20 @@ export function VersionCompareModal({
                         comparisonData.map((row, idx) => (
                           <tr
                             key={idx}
-                            className="border-b border-slate-100 hover:bg-slate-50/70 transition-colors group/row"
+                            className={cn(
+                              "border-b transition-colors group/row",
+                              !row.base ? "bg-emerald-50/50 hover:bg-emerald-50/80 border-emerald-100" : 
+                              !row.compare ? "bg-red-50/50 hover:bg-red-50/80 border-red-100" : 
+                              "border-slate-100 hover:bg-slate-50/70"
+                            )}
                           >
                             <td
-                              className="px-4 py-2.5 border-r border-slate-100 text-sm text-slate-700 bg-white sticky left-0 z-10 group-hover/row:bg-slate-50/70 transition-colors"
+                              className={cn(
+                                "px-4 py-2.5 border-r border-slate-100 text-sm text-slate-700 sticky left-0 z-10 transition-colors",
+                                !row.base ? "bg-emerald-50/90 group-hover/row:bg-emerald-100/60" : 
+                                !row.compare ? "bg-red-50/90 group-hover/row:bg-red-100/60" : 
+                                "bg-white group-hover/row:bg-slate-50/70"
+                              )}
                               style={{ boxShadow: "2px 0 6px -2px rgba(0,0,0,0.04)" }}
                             >
                               {row.name}
