@@ -6218,6 +6218,36 @@ export async function registerRoutes(
     },
   );
 
+  // PATCH /api/boq-history/:historyId/reason - Admin can update reason for a history entry
+  app.patch(
+    "/api/boq-history/:historyId/reason",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const user = (req as any).user;
+        if (!user || user.role !== 'admin') {
+          return res.status(403).json({ message: "Forbidden: Only admins can update history reasons" });
+        }
+        const { historyId } = req.params;
+        const { reason } = req.body;
+        if (typeof reason !== 'string') {
+          return res.status(400).json({ message: "reason must be a string" });
+        }
+        const result = await query(
+          `UPDATE boq_history SET reason = $1 WHERE id = $2 RETURNING id, reason`,
+          [reason.trim(), historyId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ message: "History entry not found" });
+        }
+        res.json({ success: true, history: result.rows[0] });
+      } catch (err) {
+        console.error("PATCH /api/boq-history/:historyId/reason error", err);
+        res.status(500).json({ message: "Failed to update reason" });
+      }
+    }
+  );
+
   // GET /api/boq-versions/:versionId/history - Fetch history for a version
   app.get(
     "/api/boq-versions/:versionId/history",
@@ -6226,13 +6256,79 @@ export async function registerRoutes(
       try {
         const { versionId } = req.params;
         const result = await query(
-          "SELECT * FROM boq_history WHERE version_id = $1 ORDER BY created_at DESC",
+          `SELECT h.*,
+            CASE 
+              WHEN (h.item_name IS NULL OR h.item_name = '' OR h.item_name = 'Unknown Item' OR h.item_name = 'Unnamed Item')
+                AND h.item_id IS NOT NULL 
+                AND bi.table_data IS NOT NULL
+              THEN COALESCE(
+                bi.table_data->>'product_name',
+                bi.table_data->>'item',
+                bi.table_data->>'name',
+                bi.table_data->>'category_name',
+                bi.estimator,
+                h.item_name
+              )
+              ELSE COALESCE(h.item_name, 'Unknown Item')
+            END AS resolved_item_name
+          FROM boq_history h
+          LEFT JOIN boq_items bi ON bi.id = h.item_id
+          WHERE h.version_id = $1 
+          ORDER BY h.created_at DESC`,
           [versionId]
         );
-        res.json({ history: result.rows });
+        // Map resolved_item_name back to item_name for the client
+        const history = result.rows.map((row: any) => ({
+          ...row,
+          item_name: row.resolved_item_name || row.item_name || 'Unknown Item'
+        }));
+        res.json({ history });
       } catch (err) {
         console.error("GET /api/boq-versions/:versionId/history error", err);
         res.status(500).json({ message: "Failed to fetch history" });
+      }
+    }
+  );
+
+  // GET /api/boq-projects/:projectId/all-history - Fetch history for all versions of a project
+  app.get(
+    "/api/boq-projects/:projectId/all-history",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { projectId } = req.params;
+        const result = await query(
+          `SELECT h.*, v.version_number, v.type as version_type,
+            CASE 
+              WHEN (h.item_name IS NULL OR h.item_name = '' OR h.item_name = 'Unknown Item' OR h.item_name = 'Unnamed Item')
+                AND h.item_id IS NOT NULL 
+                AND bi.table_data IS NOT NULL
+              THEN COALESCE(
+                bi.table_data->>'product_name',
+                bi.table_data->>'item',
+                bi.table_data->>'name',
+                bi.table_data->>'category_name',
+                bi.estimator,
+                h.item_name
+              )
+              ELSE COALESCE(h.item_name, 'Unknown Item')
+            END AS resolved_item_name
+          FROM boq_history h
+          JOIN boq_versions v ON v.id = h.version_id
+          LEFT JOIN boq_items bi ON bi.id = h.item_id
+          WHERE v.project_id = $1 
+          ORDER BY v.version_number DESC, h.created_at DESC`,
+          [projectId]
+        );
+        // Map resolved_item_name back to item_name for the client
+        const history = result.rows.map((row: any) => ({
+          ...row,
+          item_name: row.resolved_item_name || row.item_name || 'Unknown Item'
+        }));
+        res.json({ history });
+      } catch (err) {
+        console.error("GET /api/boq-projects/:projectId/all-history error", err);
+        res.status(500).json({ message: "Failed to fetch all history" });
       }
     }
   );
@@ -6984,7 +7080,7 @@ export async function registerRoutes(
 
         if (version_id) {
           const userObj = (req.user as any) || {};
-          const itemName = table_data.product_name || table_data.category_name || "Unknown Item";
+          const itemName = table_data.product_name || table_data.item || table_data.name || table_data.category_name || "Unknown Item";
           await query(
             `INSERT INTO boq_history (version_id, user_id, user_full_name, action, item_id, item_name) VALUES ($1, $2, $3, $4, $5, $6)`,
             [version_id, userObj.id || 'system', userObj.fullName || userObj.username || 'System', 'ADDED', itemId, itemName]
@@ -7416,7 +7512,7 @@ export async function registerRoutes(
         for (const item of currentItems) {
           let td = typeof item.table_data === 'string' ? JSON.parse(item.table_data) : item.table_data;
           let hasChanges = false;
-          const itemName = td.product_name || item.estimator || "Unknown Item";
+          const itemName = td.product_name || td.item || td.name || item.estimator || "Unknown Item";
 
           // A. Resolve Product Category
           if (td.product_id) {
@@ -7711,7 +7807,7 @@ export async function registerRoutes(
           if (typeof td === 'string') {
             try { td = JSON.parse(td); } catch { td = {}; }
           }
-          const itemName = td.product_name || td.category_name || "Unknown Item";
+          const itemName = td.product_name || td.item || td.name || td.category_name || "Unknown Item";
 
           await query(
             `INSERT INTO boq_history (version_id, user_id, user_full_name, action, reason, item_id, item_name) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
