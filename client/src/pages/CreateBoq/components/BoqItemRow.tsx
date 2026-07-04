@@ -41,7 +41,7 @@ import { useData } from "../../../lib/store";
 import { Project, BOMVersion, BOMItem, Product, Step11Item, BOMHistory, BOMComment, User, PROJECT_STATUSES, getProjectStatusMeta } from '../types';
 import { parseTableData, parseImages, safeJson, VERSION_LABEL } from '../utils';
 
-export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersionSubmitted, getEditedValue, updateEditedField, handleDeleteRow, checkBudgetEarly, handleSaveProject, isDraggable, isDragOver, onDragStart, onDragOver, onDrop, mismatch, isCompactView, comments, users, currentUser, onAddComment, selectedVersionId, isBifProd, totalItems, onOrdinalChange }: {
+export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersionSubmitted, getEditedValue, updateEditedField, handleDeleteRow, checkBudgetEarly, handleSaveProject, isDraggable, isDragOver, onDragStart, onDragOver, onDrop, mismatch, isCompactView, comments, users, currentUser, onAddComment, selectedVersionId, isBifProd, totalItems, onOrdinalChange, amendRatesActive }: {
   item: any; itemIdx: number; boqItem: BOMItem; tableData: any; isEngineBased: boolean; isVersionSubmitted: boolean;
   getEditedValue: (k: string, f: string, v: any) => any;
   updateEditedField: (k: string, f: string, v: any) => void;
@@ -63,6 +63,7 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
   isBifProd?: boolean;
   totalItems?: number;
   onOrdinalChange?: (toIdx: number) => void;
+  amendRatesActive?: boolean;
 }) {
   const { toast } = useToast();
   const itemKey = item.itemKey || `${boqItem.id}-manual-${itemIdx}`;
@@ -100,12 +101,17 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
   useEffect(() => { if (!isFocused) setLocalRate(rate.toString()); }, [rate, isFocused]);
 
   const isFreezed = item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1 || item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1;
+  const rateAmendStatus = (item.rate_amendment_status === 'approved' || item.rate_amendment_status === 'rejected')
+    ? item.rate_amendment_status
+    : getEditedValue(itemKey, "rate_amendment_status", item.rate_amendment_status);
+  const isRateAmended = rateAmendStatus === 'pending' || rateAmendStatus === 'draft';
+  const isRateApproved = rateAmendStatus === 'approved';
 
   if (perItemIsEngine) {
     // Read-only display for engine-computed items (with optional rate editing)
     return (
       <tr
-        className={`border-b border-gray-200 transition-colors text-xs ${isDragOver ? 'bg-blue-50 border-blue-300' : ''} ${hasUnreadComments ? 'bg-amber-50/70 hover:bg-amber-100 ring-1 ring-amber-200/50 relative z-10' : isIndicate ? 'bg-rose-50 hover:bg-rose-100' : isFreezed ? 'bg-cyan-100' : 'hover:bg-gray-50'}`}
+        className={`border-b border-gray-200 transition-colors text-xs ${isRateAmended ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300 hover:bg-amber-200' : isRateApproved ? 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200 hover:bg-emerald-100' : isDragOver ? 'bg-blue-50 border-blue-300' : hasUnreadComments ? 'bg-amber-50/70 hover:bg-amber-100 ring-1 ring-amber-200/50 relative z-10' : isIndicate ? 'bg-rose-50 hover:bg-rose-100' : isFreezed ? 'bg-cyan-100' : 'hover:bg-gray-50'}`}
         draggable={isDraggable}
         onDragStart={onDragStart}
         onDragOver={(e) => { e.preventDefault(); onDragOver?.(); }}
@@ -176,19 +182,43 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
         <td className="border px-2 py-2 text-center w-20 font-medium">{(item.qtyPerSqf ?? 0).toFixed(3)}</td>
         <td className="border px-2 py-2 text-center w-24 text-blue-600 font-medium">{(item.requiredQty ?? 0).toFixed(2)}</td>
         {!isCompactView && <td className="border px-2 py-2 text-center w-24 font-bold">{item.roundOff}</td>}
-        <td className={`border px-2 py-2 text-center w-24 ${mismatch ? 'bg-amber-50' : ''}`}>
-          {(item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1 || item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1) && !tableData.is_finalized ? (
+        <td className={`border px-2 py-2 text-center w-24 ${mismatch ? 'bg-amber-50' : ''} ${isRateAmended ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : isRateApproved ? 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200' : ''}`}>
+          {((item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1 || item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1) || amendRatesActive) && !tableData.is_finalized ? (
             <Input
               type="text"
               value={localRate}
               onChange={(e) => {
                 const val = e.target.value;
-                setLocalRate(val);
                 const parsed = parseFloat(val);
+                if (amendRatesActive && !isNaN(parsed)) {
+                  const origRate = item.original_rate ?? item.original_engine_rate ?? item.rateSqft;
+                  if (parsed < origRate) {
+                    // Clamp immediately — don't allow decrease
+                    setLocalRate(origRate.toString());
+                    updateEditedField(itemKey, "rate", origRate);
+                    updateEditedField(itemKey, "supply_rate", origRate);
+                    updateEditedField(itemKey, "install_rate", 0);
+                    updateEditedField(itemKey, "rate_amendment_status", null);
+                    toast({ title: "Rate cannot be decreased", description: `Minimum rate is ₹${origRate}`, variant: "destructive" });
+                    return;
+                  }
+                }
+                setLocalRate(val);
                 if (!isNaN(parsed)) {
                   updateEditedField(itemKey, "rate", parsed);
                   updateEditedField(itemKey, "supply_rate", parsed);
                   updateEditedField(itemKey, "install_rate", 0);
+                  if (amendRatesActive) {
+                    const origRate = item.original_rate ?? item.original_engine_rate ?? item.rateSqft;
+                    if (parsed > origRate) {
+                      updateEditedField(itemKey, "rate_amendment_status", "draft");
+                      if (item.original_rate === undefined && item.original_engine_rate !== undefined) {
+                        updateEditedField(itemKey, "original_rate", item.original_engine_rate);
+                      }
+                    } else {
+                      updateEditedField(itemKey, "rate_amendment_status", null);
+                    }
+                  }
                 } else if (val === "") {
                   updateEditedField(itemKey, "rate", 0);
                   updateEditedField(itemKey, "supply_rate", 0);
@@ -198,16 +228,50 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
               onBlur={() => {
                 setIsFocused(false);
                 const v = parseFloat(localRate) || 0;
-                updateEditedField(itemKey, "rate", v);
-                updateEditedField(itemKey, "supply_rate", v);
-                updateEditedField(itemKey, "install_rate", 0);
+                if (amendRatesActive) {
+                  const origRate = item.original_rate ?? item.original_engine_rate ?? item.rateSqft;
+                  if (v < origRate) {
+                    toast({
+                      title: "Validation Error",
+                      description: `Amended rate cannot be less than the original rate (₹${origRate})`,
+                      variant: "destructive"
+                    });
+                    setLocalRate(origRate.toString());
+                    updateEditedField(itemKey, "rate", origRate);
+                    updateEditedField(itemKey, "supply_rate", origRate);
+                    updateEditedField(itemKey, "install_rate", 0);
+                    updateEditedField(itemKey, "rate_amendment_status", null);
+                  } else if (v > origRate) {
+                    updateEditedField(itemKey, "rate", v);
+                    updateEditedField(itemKey, "supply_rate", v);
+                    updateEditedField(itemKey, "install_rate", 0);
+                    updateEditedField(itemKey, "rate_amendment_status", "draft");
+                    if (item.original_rate === undefined && item.original_engine_rate !== undefined) {
+                      updateEditedField(itemKey, "original_rate", item.original_engine_rate);
+                    }
+                  } else {
+                    updateEditedField(itemKey, "rate", v);
+                    updateEditedField(itemKey, "supply_rate", v);
+                    updateEditedField(itemKey, "install_rate", 0);
+                    updateEditedField(itemKey, "rate_amendment_status", null);
+                  }
+                } else {
+                  updateEditedField(itemKey, "rate", v);
+                  updateEditedField(itemKey, "supply_rate", v);
+                  updateEditedField(itemKey, "install_rate", 0);
+                }
               }}
-              className="h-7 w-20 text-xs text-center border-gray-200 focus:border-blue-400"
+              className={`h-7 w-20 text-xs text-center border-gray-200 focus:border-blue-400 ${amendRatesActive ? 'border-orange-300 bg-orange-50' : ''}`}
               disabled={isVersionSubmitted}
               onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
             />
           ) : (
             <span className={mismatch ? 'text-amber-700 font-bold' : ''}>₹{(item.rateSqft || 0).toLocaleString()}</span>
+          )}
+          {(isRateAmended || isRateApproved) && (item.original_rate ?? item.original_engine_rate) !== undefined && (
+            <div className="text-[9px] text-slate-400 line-through leading-tight mt-0.5">
+              ₹{Number(item.original_rate ?? item.original_engine_rate).toLocaleString()}
+            </div>
           )}
         </td>
         <td className="border px-2 py-2 text-center w-28 font-bold text-green-700 bg-green-50">₹{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -244,7 +308,7 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
 
   return (
     <tr
-      className={`border-b border-gray-200 transition-colors text-xs ${isDragOver ? 'bg-blue-50 border-blue-300' : ''} ${hasUnreadComments ? 'bg-amber-50/70 hover:bg-amber-100 ring-1 ring-amber-200/50 relative z-10' : isIndicate ? 'bg-rose-50 hover:bg-rose-100' : isFreezed ? 'bg-cyan-100' : 'hover:bg-gray-50'}`}
+      className={`border-b border-gray-200 transition-colors text-xs ${isRateAmended ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300 hover:bg-amber-200' : isRateApproved ? 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200 hover:bg-emerald-100' : isDragOver ? 'bg-blue-50 border-blue-300' : hasUnreadComments ? 'bg-amber-50/70 hover:bg-amber-100 ring-1 ring-amber-200/50 relative z-10' : isIndicate ? 'bg-rose-50 hover:bg-rose-100' : isFreezed ? 'bg-cyan-100' : 'hover:bg-gray-50'}`}
       draggable={isDraggable}
       onDragStart={onDragStart}
       onDragOver={(e) => { e.preventDefault(); onDragOver?.(); }}
@@ -407,18 +471,41 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
       </td>
       {/* Round off — not applicable for manual items */}
       {!isCompactView && <td className="border px-2 py-2 text-center w-24 font-medium text-gray-500">-</td>}
-      <td className="border px-2 py-2 text-center w-24">
+      <td className={`border px-2 py-2 text-center w-24 ${isRateAmended ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : isRateApproved ? 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200' : ''}`}>
         <Input
           type="text"
           value={localRate}
           onChange={(e) => {
             const val = e.target.value;
-            setLocalRate(val);
             const parsed = parseFloat(val);
+            if (amendRatesActive && !isNaN(parsed)) {
+              const origRate = item.original_rate ?? item.original_engine_rate ?? (Number(item.supply_rate || 0) + Number(item.install_rate || 0));
+              if (parsed < origRate) {
+                setLocalRate(origRate.toString());
+                updateEditedField(itemKey, "rate", origRate);
+                updateEditedField(itemKey, "supply_rate", origRate);
+                updateEditedField(itemKey, "install_rate", 0);
+                updateEditedField(itemKey, "rate_amendment_status", null);
+                toast({ title: "Rate cannot be decreased", description: `Minimum rate is ₹${origRate}`, variant: "destructive" });
+                return;
+              }
+            }
+            setLocalRate(val);
             if (!isNaN(parsed)) {
               updateEditedField(itemKey, "rate", parsed);
               updateEditedField(itemKey, "supply_rate", parsed);
               updateEditedField(itemKey, "install_rate", 0);
+              if (amendRatesActive) {
+                const origRate = item.original_rate ?? item.original_engine_rate ?? (Number(item.supply_rate || 0) + Number(item.install_rate || 0));
+                if (parsed > origRate) {
+                  updateEditedField(itemKey, "rate_amendment_status", "draft");
+                  if (item.original_rate === undefined) {
+                    updateEditedField(itemKey, "original_rate", origRate);
+                  }
+                } else {
+                  updateEditedField(itemKey, "rate_amendment_status", null);
+                }
+              }
             } else if (val === "") {
               updateEditedField(itemKey, "rate", 0);
               updateEditedField(itemKey, "supply_rate", 0);
@@ -428,14 +515,48 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
           onBlur={() => {
             setIsFocused(false);
             const v = parseFloat(localRate) || 0;
-            updateEditedField(itemKey, "rate", v);
-            updateEditedField(itemKey, "supply_rate", v);
-            updateEditedField(itemKey, "install_rate", 0);
+            if (amendRatesActive) {
+              const origRate = item.original_rate ?? item.original_engine_rate ?? (Number(item.supply_rate || 0) + Number(item.install_rate || 0));
+              if (v < origRate) {
+                toast({
+                  title: "Validation Error",
+                  description: `Amended rate cannot be less than the original rate (₹${origRate})`,
+                  variant: "destructive"
+                });
+                setLocalRate(origRate.toString());
+                updateEditedField(itemKey, "rate", origRate);
+                updateEditedField(itemKey, "supply_rate", origRate);
+                updateEditedField(itemKey, "install_rate", 0);
+                updateEditedField(itemKey, "rate_amendment_status", null);
+              } else if (v > origRate) {
+                updateEditedField(itemKey, "rate", v);
+                updateEditedField(itemKey, "supply_rate", v);
+                updateEditedField(itemKey, "install_rate", 0);
+                updateEditedField(itemKey, "rate_amendment_status", "draft");
+                if (item.original_rate === undefined) {
+                  updateEditedField(itemKey, "original_rate", origRate);
+                }
+              } else {
+                updateEditedField(itemKey, "rate", v);
+                updateEditedField(itemKey, "supply_rate", v);
+                updateEditedField(itemKey, "install_rate", 0);
+                updateEditedField(itemKey, "rate_amendment_status", null);
+              }
+            } else {
+              updateEditedField(itemKey, "rate", v);
+              updateEditedField(itemKey, "supply_rate", v);
+              updateEditedField(itemKey, "install_rate", 0);
+            }
           }}
-          className="h-7 w-20 text-xs text-center border-gray-200 focus:border-blue-400"
+          className={`h-7 w-20 text-xs text-center border-gray-200 focus:border-blue-400 ${amendRatesActive ? 'border-orange-300 bg-orange-50' : ''}`}
           disabled={isVersionSubmitted}
           onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
+        {(isRateAmended || isRateApproved) && item.original_rate !== undefined && (
+          <div className="text-[9px] text-slate-400 line-through leading-tight mt-0.5">
+            ₹{Number(item.original_rate).toLocaleString()}
+          </div>
+        )}
       </td>
       <td className="border px-2 py-2 text-center w-28 font-bold text-green-700 bg-green-50">
         ₹{previewAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

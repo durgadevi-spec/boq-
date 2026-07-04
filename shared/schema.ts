@@ -50,10 +50,14 @@ export const users = pgTable("users", {
 });
 
 export const userProjectPermissions = pgTable("user_project_permissions", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).notNull(),
   projectId: varchar("project_id", { length: 100 }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const estimatorStep9Cart = pgTable("estimator_step9_cart", {
@@ -106,11 +110,7 @@ export const userRoleEnum = z.enum([
   "finance_team",
 ]);
 
-export const approvalStatusEnum = z.enum([
-  "approved",
-  "pending",
-  "rejected",
-]);
+export const approvalStatusEnum = z.enum(["approved", "pending", "rejected"]);
 
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3),
@@ -142,46 +142,59 @@ export const insertUserSchema = createInsertSchema(users, {
   vendorCategories: true,
 });
 
-export const insertEstimatorStep9CartSchema = createInsertSchema(estimatorStep9Cart, {
-  estimator: z.string(),
-  billNo: z.string(),
-  sNo: z.number().nullable().optional(),
-  item: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  unit: z.string().nullable().optional(),
-  qty: z.number().nullable().optional(),
-  rate: z.number().nullable().optional(),
-  amount: z.number().nullable().optional(),
-  materialId: z.string().uuid().nullable().optional(),
-  batchId: z.string().nullable().optional(),
-  rowId: z.string().nullable().optional(),
-  shopId: z.string().uuid().nullable().optional(),
-  supplyRate: z.number().nullable().optional(),
-  installRate: z.number().nullable().optional(),
-  doorType: z.string().nullable().optional(),
-  panelType: z.string().nullable().optional(),
-  subOption: z.string().nullable().optional(),
-  glazingType: z.string().nullable().optional(),
-});
+export const insertEstimatorStep9CartSchema = createInsertSchema(
+  estimatorStep9Cart,
+  {
+    estimator: z.string(),
+    billNo: z.string(),
+    sNo: z.number().nullable().optional(),
+    item: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    unit: z.string().nullable().optional(),
+    qty: z.number().nullable().optional(),
+    rate: z.number().nullable().optional(),
+    amount: z.number().nullable().optional(),
+    materialId: z.string().uuid().nullable().optional(),
+    batchId: z.string().nullable().optional(),
+    rowId: z.string().nullable().optional(),
+    shopId: z.string().uuid().nullable().optional(),
+    supplyRate: z.number().nullable().optional(),
+    installRate: z.number().nullable().optional(),
+    doorType: z.string().nullable().optional(),
+    panelType: z.string().nullable().optional(),
+    subOption: z.string().nullable().optional(),
+    glazingType: z.string().nullable().optional(),
+  },
+);
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type EstimatorStep9Cart = typeof estimatorStep9Cart.$inferSelect;
-export type InsertEstimatorStep9Cart = z.infer<typeof insertEstimatorStep9CartSchema>;
+export type InsertEstimatorStep9Cart = z.infer<
+  typeof insertEstimatorStep9CartSchema
+>;
 
 export const step11Products = pgTable("step11_products", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   productId: uuid("product_id").notNull(),
   productName: text("product_name").notNull(),
   categoryId: text("category_id"),
   subcategoryId: text("subcategory_id"),
   totalCost: decimal("total_cost", { precision: 15, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const step11ProductItems = pgTable("step11_product_items", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   step11ProductId: uuid("step11_product_id")
     .notNull()
     .references(() => step11Products.id),
@@ -197,13 +210,17 @@ export const step11ProductItems = pgTable("step11_product_items", {
 });
 
 export const purchaseOrders = pgTable("purchase_orders", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   poNumber: text("po_number").notNull().unique(),
   projectId: text("project_id").notNull(),
   projectName: text("project_name"),
   vendorId: text("vendor_id").notNull(), // maps to shop_id
   vendorName: text("vendor_name"),
-  subtotal: decimal("subtotal", { precision: 15, scale: 2 }).notNull().default("0"),
+  subtotal: decimal("subtotal", { precision: 15, scale: 2 })
+    .notNull()
+    .default("0"),
   tax: decimal("tax", { precision: 15, scale: 2 }).notNull().default("0"),
   total: decimal("total", { precision: 15, scale: 2 }).notNull().default("0"),
   // draft, pending_approval, approved, ordered, delivered, rejected
@@ -212,13 +229,21 @@ export const purchaseOrders = pgTable("purchase_orders", {
   approvalComments: text("approval_comments"),
   poDate: timestamp("po_date", { withTimezone: true }).default(sql`now()`),
   deliveryDate: timestamp("delivery_date", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const purchaseOrderItems = pgTable("purchase_order_items", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  poId: uuid("po_id").notNull().references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  poId: uuid("po_id")
+    .notNull()
+    .references(() => purchaseOrders.id, { onDelete: "cascade" }),
   materialId: text("material_id"),
   item: text("item").notNull(),
   description: text("description"),
@@ -226,12 +251,18 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   qty: decimal("qty", { precision: 10, scale: 2 }).notNull(),
   rate: decimal("rate", { precision: 15, scale: 2 }).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const poRateChangeHistory = pgTable("po_rate_change_history", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  poId: uuid("po_id").notNull().references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  poId: uuid("po_id")
+    .notNull()
+    .references(() => purchaseOrders.id, { onDelete: "cascade" }),
   poItemId: uuid("po_item_id").notNull(),
   poNumber: text("po_number"),
   projectName: text("project_name"),
@@ -244,7 +275,9 @@ export const poRateChangeHistory = pgTable("po_rate_change_history", {
   status: text("status").notNull().default("pending"), // pending, approved, rejected
   changedBy: text("changed_by"),
   changedByName: text("changed_by_name"),
-  changedAt: timestamp("changed_at", { withTimezone: true }).default(sql`now()`),
+  changedAt: timestamp("changed_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
   approvedBy: text("approved_by"),
   approvedByName: text("approved_by_name"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -252,7 +285,9 @@ export const poRateChangeHistory = pgTable("po_rate_change_history", {
 });
 
 export const poRequests = pgTable("po_requests", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   projectId: text("project_id").notNull(),
   projectName: text("project_name").notNull(),
   requesterId: text("requester_id").notNull(),
@@ -261,37 +296,53 @@ export const poRequests = pgTable("po_requests", {
   department: text("department"),
   // pending_approval, approved, rejected, po_generated
   status: text("status").notNull().default("pending_approval"),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const poRequestItems = pgTable("po_request_items", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  poRequestId: uuid("po_request_id").notNull().references(() => poRequests.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  poRequestId: uuid("po_request_id")
+    .notNull()
+    .references(() => poRequests.id, { onDelete: "cascade" }),
   item: text("item").notNull(),
   category: text("category"),
   subcategory: text("subcategory"),
   unit: text("unit"),
   qty: decimal("qty", { precision: 10, scale: 2 }).notNull(),
   remarks: text("remarks"),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const insertStep11ProductSchema = createInsertSchema(step11Products);
-export const insertStep11ProductItemSchema = createInsertSchema(step11ProductItems);
+export const insertStep11ProductItemSchema =
+  createInsertSchema(step11ProductItems);
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders);
-export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems);
+export const insertPurchaseOrderItemSchema =
+  createInsertSchema(purchaseOrderItems);
 export const insertPoRequestSchema = createInsertSchema(poRequests);
 export const insertPoRequestItemSchema = createInsertSchema(poRequestItems);
 
 export type Step11Product = typeof step11Products.$inferSelect;
 export type InsertStep11Product = z.infer<typeof insertStep11ProductSchema>;
 export type Step11ProductItem = typeof step11ProductItems.$inferSelect;
-export type InsertStep11ProductItem = z.infer<typeof insertStep11ProductItemSchema>;
+export type InsertStep11ProductItem = z.infer<
+  typeof insertStep11ProductItemSchema
+>;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
 export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
-export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
+export type InsertPurchaseOrderItem = z.infer<
+  typeof insertPurchaseOrderItemSchema
+>;
 export type PoRequest = typeof poRequests.$inferSelect;
 export type InsertPoRequest = z.infer<typeof insertPoRequestSchema>;
 export type PoRequestItem = typeof poRequestItems.$inferSelect;
@@ -300,73 +351,117 @@ export type InsertPoRequestItem = z.infer<typeof insertPoRequestItemSchema>;
 // --- SITE REPORT TABLES ---
 
 export const siteReports = pgTable("site_reports", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   projectId: text("project_id").notNull(),
   projectName: text("project_name").notNull(),
   userId: text("user_id").notNull(),
-  reportDate: timestamp("report_date", { withTimezone: true }).default(sql`now()`),
+  reportDate: timestamp("report_date", { withTimezone: true }).default(
+    sql`now()`,
+  ),
   summary: text("summary"),
   // draft, submitted
   status: text("status").notNull().default("draft"),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const siteReportTasks = pgTable("site_report_tasks", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  siteReportId: uuid("site_report_id").notNull().references(() => siteReports.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  siteReportId: uuid("site_report_id")
+    .notNull()
+    .references(() => siteReports.id, { onDelete: "cascade" }),
   itemType: text("item_type").notNull(), // 'item' or 'product'
   itemId: text("item_id").notNull(),
   itemName: text("item_name").notNull(),
   taskDescription: text("task_description"),
   completionPercentage: integer("completion_percentage").notNull().default(0),
   status: text("status"), // 'Not Started', 'In Progress', 'Completed'
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const siteReportLabours = pgTable("site_report_labours", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  taskId: uuid("task_id").notNull().references(() => siteReportTasks.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => siteReportTasks.id, { onDelete: "cascade" }),
   labourName: text("labour_name"),
   count: integer("count").notNull().default(1),
   inTime: text("in_time"),
   outTime: text("out_time"),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const siteReportMedia = pgTable("site_report_media", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  taskId: uuid("task_id").notNull().references(() => siteReportTasks.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => siteReportTasks.id, { onDelete: "cascade" }),
   fileUrl: text("file_url").notNull(),
   fileType: text("file_type").notNull(), // 'image' or 'video'
   fileName: text("file_name"),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const siteReportIssues = pgTable("site_report_issues", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  taskId: uuid("task_id").notNull().references(() => siteReportTasks.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => siteReportTasks.id, { onDelete: "cascade" }),
   description: text("description").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const emailGroups = pgTable("email_groups", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   userId: text("user_id").notNull(),
   isClientGroup: boolean("is_client_group").default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const emailGroupMembers = pgTable("email_group_members", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  groupId: uuid("group_id").notNull().references(() => emailGroups.id, { onDelete: 'cascade' }),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => emailGroups.id, { onDelete: "cascade" }),
   email: text("email").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const auditLogs = pgTable("audit_logs", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }),
   username: text("username"),
   role: text("role"),
@@ -378,11 +473,15 @@ export const auditLogs = pgTable("audit_logs", {
   afterData: text("after_data"), // JSON stringified
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const bomComments = pgTable("bom_comments", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   versionId: uuid("version_id").notNull(),
   productId: text("product_id"),
   itemId: text("item_id"),
@@ -391,25 +490,35 @@ export const bomComments = pgTable("bom_comments", {
   commentText: text("comment_text").notNull(),
   versionNumber: integer("version_number").notNull(),
   visibleTo: text("visible_to").array(),
-  readBy: text("read_by").array().default(sql`'{}'::text[]`),
-  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+  readBy: text("read_by")
+    .array()
+    .default(sql`'{}'::text[]`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 export const systemSettings = pgTable("system_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(
+    sql`now()`,
+  ),
 });
 
 // Zod schemas and types
 export const insertSiteReportSchema = createInsertSchema(siteReports);
 export const insertSiteReportTaskSchema = createInsertSchema(siteReportTasks);
-export const insertSiteReportLabourSchema = createInsertSchema(siteReportLabours);
+export const insertSiteReportLabourSchema =
+  createInsertSchema(siteReportLabours);
 export const insertSiteReportMediaSchema = createInsertSchema(siteReportMedia);
 export const insertSiteReportIssueSchema = createInsertSchema(siteReportIssues);
 export const insertEmailGroupSchema = createInsertSchema(emailGroups);
-export const insertEmailGroupMemberSchema = createInsertSchema(emailGroupMembers);
+export const insertEmailGroupMemberSchema =
+  createInsertSchema(emailGroupMembers);
 export const insertAuditLogSchema = createInsertSchema(auditLogs);
 export const insertBomCommentSchema = createInsertSchema(bomComments);
 export const insertSystemSettingsSchema = createInsertSchema(systemSettings);
@@ -419,7 +528,9 @@ export type InsertSiteReport = z.infer<typeof insertSiteReportSchema>;
 export type SiteReportTask = typeof siteReportTasks.$inferSelect;
 export type InsertSiteReportTask = z.infer<typeof insertSiteReportTaskSchema>;
 export type SiteReportLabour = typeof siteReportLabours.$inferSelect;
-export type InsertSiteReportLabour = z.infer<typeof insertSiteReportLabourSchema>;
+export type InsertSiteReportLabour = z.infer<
+  typeof insertSiteReportLabourSchema
+>;
 export type SiteReportMedia = typeof siteReportMedia.$inferSelect;
 export type InsertSiteReportMedia = z.infer<typeof insertSiteReportMediaSchema>;
 export type SiteReportIssue = typeof siteReportIssues.$inferSelect;
@@ -427,7 +538,9 @@ export type InsertSiteReportIssue = z.infer<typeof insertSiteReportIssueSchema>;
 export type EmailGroup = typeof emailGroups.$inferSelect;
 export type InsertEmailGroup = z.infer<typeof insertEmailGroupSchema>;
 export type EmailGroupMember = typeof emailGroupMembers.$inferSelect;
-export type InsertEmailGroupMember = z.infer<typeof insertEmailGroupMemberSchema>;
+export type InsertEmailGroupMember = z.infer<
+  typeof insertEmailGroupMemberSchema
+>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type BomComment = typeof bomComments.$inferSelect;
@@ -438,7 +551,9 @@ export type InsertSystemSettings = z.infer<typeof insertSystemSettingsSchema>;
 // --- ARCHIVE RECORDS ---
 
 export const archiveRecords = pgTable("archive_records", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   module: text("module").notNull(),
   originId: text("origin_id").notNull(),
   data: text("data"), // Store JSON as string
@@ -451,3 +566,29 @@ export const insertArchiveRecordSchema = createInsertSchema(archiveRecords);
 export type ArchiveRecord = typeof archiveRecords.$inferSelect;
 export type InsertArchiveRecord = z.infer<typeof insertArchiveRecordSchema>;
 
+export const bomRateChangeRequests = pgTable("bom_rate_change_requests", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: text("project_id").notNull(),
+  projectName: text("project_name"),
+  bomName: text("bom_name"),
+  versionId: text("version_id"),
+  boqItemId: text("boq_item_id"),
+  productId: text("product_id"),
+  productName: text("product_name"),
+  materialId: text("material_id"),
+  materialName: text("material_name").notNull(),
+  originalRate: decimal("original_rate", { precision: 15, scale: 2 }).notNull(),
+  requestedRate: decimal("requested_rate", { precision: 15, scale: 2 }).notNull(),
+  status: text("status").notNull().default("pending"),
+  remarks: text("remarks"),
+  requestedBy: text("requested_by"),
+  requestedByName: text("requested_by_name"),
+  approvedBy: text("approved_by"),
+  approvedByName: text("approved_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+});
+
+export const insertBomRateChangeRequestSchema = createInsertSchema(bomRateChangeRequests);
+export type BomRateChangeRequest = typeof bomRateChangeRequests.$inferSelect;
+export type InsertBomRateChangeRequest = z.infer<typeof insertBomRateChangeRequestSchema>;

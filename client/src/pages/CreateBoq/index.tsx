@@ -223,6 +223,9 @@ export default function CreateBom() {
   const [showCompareDialog, setShowCompareDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("bom");
   const [approvals, setApprovals] = useState<any[]>([]);
+  const [approvalsModalOpen, setApprovalsModalOpen] = useState(false);
+  const [rateChangeRequests, setRateChangeRequests] = useState<any[]>([]);
+  const [rateActionLoading, setRateActionLoading] = useState<string | null>(null);
   const [loadingApprovals, setLoadingApprovals] = useState(false);
   const [approvalActionLoading, setApprovalActionLoading] = useState<string | null>(null);
   const [previewApprovalId, setPreviewApprovalId] = useState<string | null>(null);
@@ -311,6 +314,15 @@ export default function CreateBom() {
           (a.type === 'bom' || !a.type)
         );
         setApprovals(filtered);
+        try {
+          const rateRes = await apiFetch("/api/bom-rate-changes/all");
+          if (rateRes.ok) {
+            const rateData = await rateRes.json();
+            setRateChangeRequests(rateData.rateChanges || []);
+          }
+        } catch (e) {
+          console.error("Failed to fetch rate changes", e);
+        }
       }
     } catch (err) {
       console.error("Failed to load BOM approvals:", err);
@@ -324,6 +336,21 @@ export default function CreateBom() {
       fetchApprovals();
     }
   }, [activeTab, user?.role, fetchApprovals]);
+
+
+  const handleRateAction = async (id: string, action: 'approve' | 'reject') => {
+    try {
+      setRateActionLoading(id);
+      const res = await apiFetch(`/api/bom-rate-changes/${id}/${action}`, { method: 'POST' });
+      if (!res.ok) throw new Error("Failed to update rate change");
+      toast({ title: "Success", description: `Rate change ${action}d successfully` });
+      fetchApprovals(); // Refresh the list
+    } catch (err) {
+      toast({ title: "Error", description: `Failed to ${action} rate change`, variant: "destructive" });
+    } finally {
+      setRateActionLoading(null);
+    }
+  };
 
   const handleApprovalAction = async (id: string, action: 'approve' | 'reject' | 'approve-edit' | 'reject-edit') => {
     let reason = "";
@@ -1481,6 +1508,126 @@ export default function CreateBom() {
     } catch { /* ignore */ }
   }, [window.location.search, projects, versions]);
 
+  // Listen for top header 'Approvals' click to open the in-page modal directly
+  useEffect(() => {
+    const handleOpen = () => {
+      setApprovalsModalOpen(true);
+      fetchApprovals();
+    };
+    window.addEventListener('open-bom-approvals', handleOpen);
+    return () => window.removeEventListener('open-bom-approvals', handleOpen);
+  }, [fetchApprovals]);
+
+  // ── Rate Amendment Guard ──────────────────────────────────────────────────
+  // 'draft'   = user typed a new rate locally, not yet sent to admin for approval.
+  // 'pending' = already sent to admin (POST /api/bom-rate-changes succeeded), awaiting decision.
+  // Check both in-memory edits AND already-saved table_data for either status.
+  const rateAmendmentSummary = useMemo(() => {
+    const draftItems: Array<{
+      boqItemId: string; itemKey: string; materialId: string; materialName: string;
+      productName: string; projectId: string; projectName: string; originalRate: number; requestedRate: number;
+    }> = [];
+    let hasPending = false;
+
+    for (const boqItem of boqItems) {
+      let td: any;
+      try {
+        td = typeof boqItem.table_data === 'string' ? JSON.parse(boqItem.table_data) : boqItem.table_data;
+      } catch { continue; }
+      if (!td) continue;
+      const productName = td.product_name || (boqItem as any).estimator || '';
+      const projectId = td.project_id || boqItem.id;
+      const projectName = td.project_name || productName;
+
+      const materialLines: any[] = td.materialLines || [];
+      const step11Items: any[] = td.step11_items || [];
+      const processLine = (line: any, idx: number, prefix: 'engine' | 'manual') => {
+        const itemKey = line.itemKey || `${boqItem.id}-${prefix}-${idx}`;
+        // Backend "approved"/"rejected" is a resolved outcome and always wins over a stale
+        // local "pending" flag left in editedFields from when this browser session submitted it.
+        const backendStatus = line.rate_amendment_status;
+        const status = (backendStatus === 'approved' || backendStatus === 'rejected')
+          ? backendStatus
+          : (editedFields[itemKey]?.rate_amendment_status ?? backendStatus);
+        if (status === 'pending') { hasPending = true; return; }
+        if (status === 'draft') {
+          // IMPORTANT: raw engine (materialLines) rows store their rate as
+          // supplyRate/installRate (camelCase). Raw manual (step11) rows store
+          // it as supply_rate/install_rate (snake_case). Using the wrong casing
+          // as a fallback silently resolves to 0 whenever the editedFields
+          // lookup misses — which is exactly why "inside product" items were
+          // showing ₹0.00 while directly-added items were not.
+          const rawSupply = prefix === 'engine' ? Number(line.supplyRate ?? 0) : Number(line.supply_rate ?? 0);
+          const rawInstall = prefix === 'engine' ? Number(line.installRate ?? 0) : Number(line.install_rate ?? 0);
+          const rawOriginal = prefix === 'engine' ? (rawSupply + rawInstall) : (line.original_rate ?? line.original_engine_rate);
+          const requestedRate = editedFields[itemKey]?.rate ?? line.rate ?? line.rateSqft ?? (rawSupply + rawInstall);
+          const originalRate = editedFields[itemKey]?.original_rate ?? line.original_rate ?? line.original_engine_rate ?? rawOriginal;
+          draftItems.push({
+            boqItemId: boqItem.id,
+            itemKey,
+            materialId: line.id || line.materialId || line.name,
+            materialName: line.title || line.name || 'Unknown',
+            productName,
+            projectId,
+            projectName,
+            originalRate: Number(originalRate) || 0,
+            requestedRate: Number(requestedRate) || 0,
+          });
+        }
+      };
+      materialLines.forEach((line, idx) => processLine(line, idx, 'engine'));
+      step11Items.forEach((line, idx) => processLine(line, idx, 'manual'));
+    }
+    return { hasDraft: draftItems.length > 0, hasPending, draftItems };
+  }, [editedFields, boqItems]);
+
+  const hasPendingRateAmendments = rateAmendmentSummary.hasDraft || rateAmendmentSummary.hasPending;
+
+  const handleSubmitRateAmendRequests = async () => {
+    const items = rateAmendmentSummary.draftItems;
+    if (items.length === 0) return;
+    // Safety net: never let a zero/invalid amended rate reach the admin queue,
+    // even if some edge case elsewhere produced a bad draft entry.
+    const validItems = items.filter(it => it.requestedRate > 0 && it.requestedRate > it.originalRate);
+    const skippedCount = items.length - validItems.length;
+    if (validItems.length === 0) {
+      toast({ title: 'Nothing to submit', description: 'No valid rate amendments were found. Please re-enter the new rate and try again.', variant: 'destructive' });
+      return;
+    }
+    try {
+      for (const it of validItems) {
+        await apiFetch('/api/bom-rate-changes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project_id: it.projectId,
+            project_name: it.projectName,
+            bom_name: it.productName,
+            version_id: selectedVersionId,
+            boq_item_id: it.boqItemId,
+            product_id: it.boqItemId,
+            product_name: it.productName,
+            material_id: it.materialId,
+            material_name: it.materialName,
+            original_rate: it.originalRate,
+            requested_rate: it.requestedRate,
+            remarks: 'Amended during BOQ creation',
+          }),
+        });
+        // Flip local status from 'draft' (unsent) to 'pending' (awaiting admin decision)
+        updateEditedField(it.itemKey, 'rate_amendment_status', 'pending');
+      }
+      await handleSaveProject();
+      toast({
+        title: 'Rate Change Request Submitted',
+        description: `Sent ${validItems.length} rate amendment${validItems.length > 1 ? 's' : ''} for admin approval.${skippedCount > 0 ? ` (${skippedCount} skipped due to an invalid rate — please re-enter and resubmit.)` : ''}`
+      });
+    } catch (err) {
+      console.error('Failed to submit rate change requests', err);
+      toast({ title: 'Error', description: 'Failed to submit rate change request(s)', variant: 'destructive' });
+    }
+  };
+
   // ── Field helpers ──────────────────────────────────────────────────────────
 
   const updateEditedField = (itemKey: string, field: string, value: any) => {
@@ -1524,7 +1671,15 @@ export default function CreateBom() {
             const qty = Number(getEditedValue(itemKey, "qty", line.perUnitQty));
             const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
             const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
-            const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            let rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            // Only fall back to the pre-amendment rate while the amendment is still
+            // pending/draft/rejected. Once approved, keep the actual (amended) rate.
+            const itemRateAmendStatus = (line.rate_amendment_status === 'approved' || line.rate_amendment_status === 'rejected')
+              ? line.rate_amendment_status
+              : getEditedValue(itemKey, "rate_amendment_status", line.rate_amendment_status);
+            if (line.original_rate !== undefined && line.original_rate !== null && itemRateAmendStatus !== 'approved') {
+              rate = Number(line.original_rate);
+            }
 
             const isLumpSumLine = (line.unit || "").toLowerCase() === "ls";
             const reqQty = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : Number((qty * target).toFixed(2)));
@@ -2379,7 +2534,15 @@ export default function CreateBom() {
             const qty = Number(getEditedValue(itemKey, "qty", line.perUnitQty));
             const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
             const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
-            const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            let rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            // Only fall back to the pre-amendment rate while the amendment is still
+            // pending/draft/rejected. Once approved, keep the actual (amended) rate.
+            const itemRateAmendStatus = (line.rate_amendment_status === 'approved' || line.rate_amendment_status === 'rejected')
+              ? line.rate_amendment_status
+              : getEditedValue(itemKey, "rate_amendment_status", line.rate_amendment_status);
+            if (line.original_rate !== undefined && line.original_rate !== null && itemRateAmendStatus !== 'approved') {
+              rate = Number(line.original_rate);
+            }
             const isLumpSumLine = (line.unit || "").toLowerCase() === "ls";
             const reqQty = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : Number((qty * targetQtyEngine).toFixed(2)));
             const roundOff = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : (line.applyRounding !== false ? Math.ceil(reqQty) : reqQty));
@@ -2631,7 +2794,15 @@ export default function CreateBom() {
             const qty = Number(getEditedValue(itemKey, "qty", line.perUnitQty));
             const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
             const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
-            const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            let rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+            // Only fall back to the pre-amendment rate while the amendment is still
+            // pending/draft/rejected. Once approved, keep the actual (amended) rate.
+            const itemRateAmendStatus = (line.rate_amendment_status === 'approved' || line.rate_amendment_status === 'rejected')
+              ? line.rate_amendment_status
+              : getEditedValue(itemKey, "rate_amendment_status", line.rate_amendment_status);
+            if (line.original_rate !== undefined && line.original_rate !== null && itemRateAmendStatus !== 'approved') {
+              rate = Number(line.original_rate);
+            }
             const isLumpSumLine = (line.unit || "").toLowerCase() === "ls";
             const reqQty = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : Number((qty * targetQtyEngine).toFixed(2)));
             const roundOff = isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : (line.applyRounding !== false ? Math.ceil(reqQty) : reqQty));
@@ -2864,15 +3035,23 @@ export default function CreateBom() {
               </h1>
 
               {(user?.role === 'admin' || user?.role === 'software_team') && (
-                <TabsList className="bg-slate-100 p-1 border border-slate-200 shadow-sm">
-                  <TabsTrigger value="bom" className="px-5 py-1.5 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm transition-all">
+                <div className="flex items-center gap-2">
+                  <div className="px-5 py-1.5 text-xs font-bold bg-white text-blue-600 shadow-sm rounded-md border border-slate-200">
                     BOM Builder
-                  </TabsTrigger>
-                  <TabsTrigger value="approvals" className="px-5 py-1.5 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm transition-all flex items-center gap-2">
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="px-5 py-1.5 h-auto text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 shadow-sm border-slate-200 flex items-center gap-2"
+                    onClick={() => { setApprovalsModalOpen(true); fetchApprovals(); }}
+                  >
                     Approvals
-                    {approvals.length > 0 && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white font-bold">{approvals.length}</span>}
-                  </TabsTrigger>
-                </TabsList>
+                    {(approvals.length > 0 || rateChangeRequests.filter(r => r.status === 'pending').length > 0) && (
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white font-bold">
+                        {approvals.length + rateChangeRequests.filter(r => r.status === 'pending').length}
+                      </span>
+                    )}
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -3781,26 +3960,58 @@ export default function CreateBom() {
                       {!isReadOnlyMode && (
                         <>
                           <Button onClick={withBudgetCheck(() => currentProjectValue, handleSaveProject)} variant="outline" disabled={isVersionSubmitted || Object.keys(editedFields).length === 0}>Save Draft</Button>
-                          <Button onClick={() => handleSubmitVersion("submitted")} variant="outline" className="border-primary text-primary hover:bg-primary/5 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Lock Version</Button>
-                          <Button onClick={() => handleSubmitVersion("pending_approval")} variant="default" className="bg-primary hover:bg-primary/90 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Submit for Approval</Button>
+                          <Button onClick={() => handleSubmitVersion("submitted")} variant="outline" className="border-primary text-primary hover:bg-primary/5 font-bold" disabled={isVersionSubmitted || boqItems.length === 0 || hasPendingRateAmendments} title={hasPendingRateAmendments ? "Cannot lock: There are rate amendments that must be submitted and approved first." : undefined}>Lock Version</Button>
+                          {rateAmendmentSummary.hasDraft ? (
+                            <Button onClick={handleSubmitRateAmendRequests} variant="default" className="bg-amber-600 hover:bg-amber-700 font-bold" title="Send the amended rate(s) to admin for approval">
+                              Submit Rate Amend Request
+                            </Button>
+                          ) : rateAmendmentSummary.hasPending ? (
+                            <Button variant="default" className="bg-amber-300 font-bold cursor-not-allowed" disabled title="Waiting for admin to approve or reject the submitted rate change request(s)">
+                              Awaiting Rate Approval
+                            </Button>
+                          ) : (
+                            <Button onClick={() => handleSubmitVersion("pending_approval")} variant="default" className="bg-primary hover:bg-primary/90 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Submit for Approval</Button>
+                          )}
                         </>
                       )}
                       <Button onClick={handleDownloadExcel} variant="outline" disabled={boqItems.length === 0}>Download Excel</Button>
                       <Button onClick={handleDownloadPdf} variant="outline" disabled={boqItems.length === 0}>Download PDF</Button>
                     </div>
+                    {rateAmendmentSummary.hasDraft && (
+                      <div className="col-span-full flex items-center gap-2 mt-2 p-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
+                        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                        <span>You've amended one or more rates. Click "Submit Rate Amend Request" to send them for admin approval — Submit for Approval will unlock once approved.</span>
+                      </div>
+                    )}
+                    {!rateAmendmentSummary.hasDraft && rateAmendmentSummary.hasPending && (
+                      <div className="col-span-full flex items-center gap-2 mt-2 p-2 rounded-md bg-orange-50 border border-orange-200 text-orange-700 text-xs font-semibold">
+                        <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
+                        <span>Rate change request submitted. Waiting for admin approval — Submit for Approval will become available once approved.</span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
             </TabsContent>
 
-            <TabsContent value="approvals" className="mt-0">
-              <ApprovalsList
-                approvals={approvals}
-                onPreview={handlePreviewApproval}
-                onAction={handleApprovalAction}
-                actionLoading={approvalActionLoading}
-              />
-            </TabsContent>
+            <Dialog open={approvalsModalOpen} onOpenChange={setApprovalsModalOpen}>
+              <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Approvals & Requests</DialogTitle>
+                  <DialogDescription>Review pending BOM approvals and rate change requests.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                  <ApprovalsList
+                    approvals={approvals}
+                    rateChangeRequests={rateChangeRequests}
+                    onPreview={(a) => { setApprovalsModalOpen(false); handlePreviewApproval(a); }}
+                    onAction={handleApprovalAction}
+                    onRateAction={handleRateAction}
+                    actionLoading={approvalActionLoading || rateActionLoading}
+                  />
+                </div>
+              </DialogContent>
+            </Dialog>
           </Tabs>
         </div>
       </Layout>

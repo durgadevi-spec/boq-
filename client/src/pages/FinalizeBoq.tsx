@@ -3875,6 +3875,16 @@ export default function FinalizeBoq() {
       : (activeVersion.is_locked || ["submitted", "pending_approval", "edit_requested"].includes(activeVersion.status))
   );
 
+  // Check for any pending rate amendments across all BOQ items
+  const hasPendingRateAmendments = React.useMemo(() => {
+    return boqItems.some((bi: any) => {
+      let td = bi.table_data || {};
+      if (typeof td === 'string') try { td = JSON.parse(td); } catch { td = {}; }
+      const lines = [...(Array.isArray(td.materialLines) ? td.materialLines : []), ...(Array.isArray(td.step11_items) ? td.step11_items : [])];
+      return lines.some((line: any) => String(line.rate_amendment_status) === 'pending');
+    });
+  }, [boqItems]);
+
   // Budget (read-only) should come from the generated BOQ total (sum of displayed item amounts)
   const calculateGeneratedBudget = () => {
     return boqItems.reduce((acc: number, bi: BOMItem) => {
@@ -6405,7 +6415,8 @@ export default function FinalizeBoq() {
                     <Button
                       onClick={handleFinanceSubmitForApproval}
                       className="bg-orange-600 hover:bg-orange-700 text-white font-bold"
-                      disabled={isVersionSubmitted || boqItems.length === 0}
+                      disabled={isVersionSubmitted || boqItems.length === 0 || hasPendingRateAmendments}
+                      title={hasPendingRateAmendments ? "Cannot submit: There are pending rate amendments that must be approved first." : undefined}
                     >
                       Submit for Approval
                     </Button>
@@ -6415,7 +6426,8 @@ export default function FinalizeBoq() {
                     <Button
                       onClick={handleSubmitVersion}
                       variant="default"
-                      disabled={isVersionSubmitted || boqItems.length === 0}
+                      disabled={isVersionSubmitted || boqItems.length === 0 || hasPendingRateAmendments}
+                      title={hasPendingRateAmendments ? "Cannot lock: There are pending rate amendments that must be approved first." : undefined}
                     >
                       Lock Version
                     </Button>

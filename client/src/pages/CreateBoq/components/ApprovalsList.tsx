@@ -43,22 +43,27 @@ import { parseTableData, parseImages, safeJson, VERSION_LABEL } from '../utils';
 
 export function ApprovalsList({
   approvals,
+  rateChangeRequests = [],
   onPreview,
   onAction,
+  onRateAction,
   actionLoading
 }: {
   approvals: any[],
+  rateChangeRequests?: any[],
   onPreview: (a: any) => void,
   onAction: (id: string, action: 'approve' | 'reject' | 'approve-edit' | 'reject-edit') => void,
+  onRateAction?: (id: string, action: 'approve' | 'reject') => void,
   actionLoading: string | null
 }) {
   const [listType, setListType] = React.useState("bom");
 
   const pending = approvals.filter(a => a.status === 'pending_approval' || a.status === 'submitted');
   const editRequests = approvals.filter(a => a.status === 'edit_requested');
+  const rateRequests = rateChangeRequests.filter(r => r.status === 'pending');
   const others = approvals.filter(a => a.status !== 'pending_approval' && a.status !== 'submitted' && a.status !== 'edit_requested');
 
-  const currentList = listType === "bom" ? pending : listType === "edit" ? editRequests : others;
+  const currentList = listType === "bom" ? pending : listType === "edit" ? editRequests : listType === "rates" ? rateRequests : others;
 
   return (
     <div className="space-y-4">
@@ -78,6 +83,13 @@ export function ApprovalsList({
             >
               BOM Approvals
               {pending.length > 0 && <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-600">{pending.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger
+              value="rates"
+              className="px-8 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm"
+            >
+              Rate Changes
+              {rateRequests.length > 0 && <Badge variant="secondary" className="ml-2 bg-orange-100 text-orange-600">{rateRequests.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger
               value="history"
@@ -117,13 +129,60 @@ export function ApprovalsList({
                       <CheckCircle2 className="h-10 w-10 text-slate-200" />
                     </div>
                     <div className="space-y-1">
-                      <p className="font-bold text-slate-600">No {listType === 'history' ? 'approval history' : listType === 'bom' ? 'pending BOM approvals' : 'edit requests'}</p>
+                      <p className="font-bold text-slate-600">No {listType === 'history' ? 'approval history' : listType === 'bom' ? 'pending BOM approvals' : listType === 'rates' ? 'rate change requests' : 'edit requests'}</p>
                       <p className="text-sm text-slate-400">You're all caught up for now.</p>
                     </div>
                   </div>
                 </TableCell>
               </TableRow>
             ) : (
+
+              listType === "rates" ? (
+                currentList.map((r) => (
+                  <TableRow key={r.id} className="hover:bg-slate-50/50 transition-colors border-b-slate-100">
+                    <TableCell className="w-12 py-4"></TableCell>
+                    <TableCell className="w-10 px-0">
+                      <div className="w-4 h-4 border border-slate-200 rounded hover:border-blue-400 transition-colors"></div>
+                    </TableCell>
+                    <TableCell className="font-bold text-slate-900 text-sm py-4">{r.product_name}</TableCell>
+                    <TableCell className="text-sm text-slate-600 italic font-medium">{r.material_name}</TableCell>
+                    <TableCell className="text-center font-bold text-slate-500 text-xs">V{r.version_id.substring(0,6)}</TableCell>
+                    <TableCell className="text-center py-4">
+                      <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-100 font-bold px-2 py-0 text-[10px] h-5">Rate Amend</Badge>
+                    </TableCell>
+                    <TableCell className="text-center py-4">
+                      <div className="flex flex-col gap-1 items-center">
+                        <span className="text-xs text-slate-500 line-through">₹{r.original_rate}</span>
+                        <span className="text-sm font-bold text-slate-900">₹{r.requested_rate}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-[11px] font-medium text-slate-500 whitespace-nowrap">
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right pr-8 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs font-bold bg-green-600 hover:bg-green-700 text-white shadow-sm px-4"
+                          onClick={() => onRateAction && onRateAction(r.id, 'approve')}
+                          disabled={!!actionLoading}
+                        >
+                          {actionLoading === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Approve"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-8 text-xs font-bold bg-red-500 hover:bg-red-600 text-white shadow-sm px-4 border-none"
+                          onClick={() => onRateAction && onRateAction(r.id, 'reject')}
+                          disabled={!!actionLoading}
+                        >
+                          {actionLoading === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Reject"}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
               currentList.map((a) => (
                 <TableRow key={a.id} className="hover:bg-slate-50/50 transition-colors border-b-slate-100">
                   <TableCell className="w-12 py-4">
@@ -198,7 +257,7 @@ export function ApprovalsList({
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+              )))
             )}
           </TableBody>
         </Table>

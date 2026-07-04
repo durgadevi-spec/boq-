@@ -80,13 +80,14 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
   const [showDescTooltip, setShowDescTooltip] = useState(false);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [amendRatesActive, setAmendRatesActive] = useState(false);
 
   const performDelete = async (action: "archive" | "trash", reason?: string) => {
     try {
-      const url = reason 
-        ? `/api/boq-items/${boqItem.id}?reason=${encodeURIComponent(reason)}` 
+      const url = reason
+        ? `/api/boq-items/${boqItem.id}?reason=${encodeURIComponent(reason)}`
         : `/api/boq-items/${boqItem.id}`;
-        
+
       const res = await apiFetch(url, { method: "DELETE" });
       if (res.ok) {
         setBoqItems(prev => prev.filter(i => i.id !== boqItem.id));
@@ -138,6 +139,8 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
       const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
       const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
       const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+      // Original engine rate (before any user edits) — used for rate amendment comparison
+      const originalEngineRate = Number(line.supplyRate || 0) + Number(line.installRate || 0);
 
       const isLumpSumLine = (line.unit || "").toLowerCase() === "ls";
       const reqQty = calculationTarget === 0 ? 0 : (isFrozen ? line.roundOffQty : (isLumpSumLine ? 1 : Number((qty * calculationTarget).toFixed(2))));
@@ -151,7 +154,13 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
         freezeAndEdit: line.freezeAndEdit,
         freeze_and_edit: line.freeze_and_edit,
         category: line.category,
-        is_project_pricing: line.is_project_pricing
+        is_project_pricing: line.is_project_pricing,
+        // Rate amendment fields
+        original_engine_rate: originalEngineRate,
+        original_rate: getEditedValue(itemKey, "original_rate", line.original_rate),
+        rate_amendment_status: getEditedValue(itemKey, "rate_amendment_status", line.rate_amendment_status),
+        id: line.id || line.materialId,
+        materialId: line.materialId || line.id
       };
     });
     const manualStep11 = step11Items.map((it: any, s11Idx: number) => {
@@ -171,7 +180,24 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
       const reqQty = calculationTarget === 0 ? 0 : (isLumpSumLine ? 1 : qty);
       const roundOff = reqQty; // No rounding for manual items usually, or just keep as is
       const amount = Number((reqQty * rate).toFixed(2));
-      return { ...it, manual: true, itemKey, _s11Idx: s11Idx, qtyPerSqf: isLumpSumLine ? 1 : qty, requiredQty: reqQty, roundOff, amount, supply_rate: sRate, install_rate: iRate };
+      const originalEngineRate = Number(it.supply_rate || 0) + Number(it.install_rate || 0);
+      return {
+        ...it,
+        manual: true,
+        itemKey,
+        _s11Idx: s11Idx,
+        qtyPerSqf: isLumpSumLine ? 1 : qty,
+        requiredQty: reqQty,
+        roundOff,
+        amount,
+        supply_rate: sRate,
+        install_rate: iRate,
+        original_engine_rate: originalEngineRate,
+        original_rate: getEditedValue(itemKey, "original_rate", it.original_rate),
+        rate_amendment_status: getEditedValue(itemKey, "rate_amendment_status", it.rate_amendment_status),
+        id: it.id || it.materialId,
+        materialId: it.materialId || it.id
+      };
     }).filter(Boolean);
     displayLines = [...computedLines, ...manualStep11];
   } else {
@@ -190,7 +216,23 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
       const scaledQty = isManual ? (isLumpSumLine ? 1 : baseQty) : (calculationTarget === 0 ? 0 : (isLumpSumLine ? 1 : Number((baseQty * calculationTarget).toFixed(2))));
       const roundOff = isManual ? scaledQty : (calculationTarget === 0 ? 0 : ((it.applyRounding !== false && !isLumpSumLine) ? Math.ceil(scaledQty) : scaledQty));
       const amount = Number((roundOff * rate).toFixed(2));
-      return { ...it, itemKey, _s11Idx: s11Idx, qtyPerSqf: isLumpSumLine ? 1 : baseQty, qty: scaledQty, roundOff, rateSqft: rate, amount, manual: isManual };
+      const originalEngineRate = Number(it.supply_rate || 0) + Number(it.install_rate || 0);
+      return {
+        ...it,
+        itemKey,
+        _s11Idx: s11Idx,
+        qtyPerSqf: isLumpSumLine ? 1 : baseQty,
+        qty: scaledQty,
+        roundOff,
+        rateSqft: rate,
+        amount,
+        manual: isManual,
+        original_engine_rate: originalEngineRate,
+        original_rate: getEditedValue(itemKey, "original_rate", it.original_rate),
+        rate_amendment_status: getEditedValue(itemKey, "rate_amendment_status", it.rate_amendment_status),
+        id: it.id || it.materialId,
+        materialId: it.materialId || it.id
+      };
     });
   }
 
@@ -363,7 +405,7 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
 
       {/* Content Area */}
       {!isCompactView && (
-      <div className="px-4 py-3 space-y-3">
+        <div className="px-4 py-3 space-y-3">
           <div className="space-y-3">
             {/* Row 2: Area + Add Item + Finalize */}
             <div className="flex flex-wrap items-center gap-3">
@@ -419,6 +461,17 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`h-7 text-xs font-bold shadow-sm ${amendRatesActive ? 'bg-orange-100 text-orange-700 border-orange-300' : 'border-slate-300 bg-white hover:bg-slate-50'}`}
+                  title={amendRatesActive ? "Finish editing rates. Use 'Submit Rate Amend Request' at the bottom of the page to send changes for admin approval." : "Enable rate editing for this product"}
+                  onClick={() => setAmendRatesActive(!amendRatesActive)}
+                  disabled={isVersionSubmitted || tableData.is_finalized}
+                >
+                  <Edit className="h-3.5 w-3.5 mr-1" />
+                  {amendRatesActive ? "Done Editing" : "Amend Rates"}
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -542,7 +595,7 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
               </div>
             )}
           </div>
-      </div>
+        </div>
       )}
 
       {/* Items Table */}
@@ -579,6 +632,7 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
                         key={item.itemKey || `${boqItem.id}-${item.originalIdx}`}
                         item={item} itemIdx={item.originalIdx} boqItem={boqItem}
                         tableData={tableData} isEngineBased={isEngineBased} isVersionSubmitted={isVersionSubmitted}
+                        amendRatesActive={amendRatesActive}
                         getEditedValue={getEditedValue} updateEditedField={updateEditedField}
                         handleDeleteRow={handleDeleteRow} checkBudgetEarly={checkBudgetEarly}
                         handleSaveProject={handleSaveProject}
@@ -679,7 +733,21 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
 }, (prevProps, nextProps) => {
   const prevExpanded = prevProps.expandedProductIds.has(prevProps.boqItem.id);
   const nextExpanded = nextProps.expandedProductIds.has(nextProps.boqItem.id);
-  
+
+  // editedFields is keyed by itemKey (`${boqItem.id}-engine-N` / `${boqItem.id}-manual-N`),
+  // never by boqItem.id directly, so comparing editedFields[boqItem.id] always compared {} to {}
+  // and never detected real edits (rate changes, rate_amendment_status, etc). Compare every
+  // entry whose key belongs to this boqItem (prefix match) instead.
+  const prefix = `${prevProps.boqItem.id}-`;
+  const prevOwn: Record<string, any> = {};
+  const nextOwn: Record<string, any> = {};
+  for (const k of Object.keys(prevProps.editedFields)) {
+    if (k.startsWith(prefix)) prevOwn[k] = prevProps.editedFields[k];
+  }
+  for (const k of Object.keys(nextProps.editedFields)) {
+    if (k.startsWith(prefix)) nextOwn[k] = nextProps.editedFields[k];
+  }
+
   // Only re-render if the boqItem data itself changed, or its expanded state, or if dragging state changed
   return (
     prevProps.boqItem.table_data === nextProps.boqItem.table_data &&
@@ -688,7 +756,7 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
     prevProps.isCardDragOver === nextProps.isCardDragOver &&
     prevProps.isCompactView === nextProps.isCompactView &&
     prevProps.bomButtonsEnabled === nextProps.bomButtonsEnabled &&
-    // Check if the specific edited fields for this item changed
-    JSON.stringify(prevProps.editedFields[prevProps.boqItem.id] || {}) === JSON.stringify(nextProps.editedFields[nextProps.boqItem.id] || {})
+    // Check if any edited field belonging to this specific product changed
+    JSON.stringify(prevOwn) === JSON.stringify(nextOwn)
   );
 });

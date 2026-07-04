@@ -467,7 +467,11 @@ export function Header() {
                   <button
                     key={item.id}
                     onClick={() => {
-                      setLocation(item.href);
+                      if (item.id === "bom_approvals" && window.location.pathname === "/create-bom") {
+                        window.dispatchEvent(new Event("open-bom-approvals"));
+                      } else {
+                        setLocation(item.href);
+                      }
                       setApprovalsOpen(false);
                     }}
                     className="w-full flex items-center justify-between px-3 h-9 rounded-md text-[13px] text-[#374151] hover:bg-[#F3F4F6] hover:text-[#111827] transition-colors duration-100"

@@ -6138,6 +6138,10 @@ export async function registerRoutes(
               else if (f.rate !== undefined) tableData.materialLines[itemIdx].supplyRate = Number(f.rate);
               if (f.install_rate !== undefined) tableData.materialLines[itemIdx].installRate = Number(f.install_rate);
               if (f.qty !== undefined) tableData.materialLines[itemIdx].perUnitQty = Number(f.qty);
+              // Rate-amendment tracking fields were being dropped here — carry them through
+              // just like the manual/step11_items branch below already does via spread.
+              if (f.rate_amendment_status !== undefined) tableData.materialLines[itemIdx].rate_amendment_status = f.rate_amendment_status;
+              if (f.original_rate !== undefined) tableData.materialLines[itemIdx].original_rate = f.original_rate;
               editsAppliedToThisItem++;
             }
           }
@@ -6352,6 +6356,18 @@ export async function registerRoutes(
         if (status && !["draft", "submitted", "pending_approval", "approved", "rejected", "edit_requested"].includes(status)) {
           res.status(400).json({ message: "Invalid status" });
           return;
+        }
+
+        if (status === "pending_approval" || status === "submitted") {
+          // Check if there are any pending rate change requests for this version
+          const { rows: pendingRequests } = await query(
+            `SELECT id FROM bom_rate_change_requests WHERE version_id = $1 AND status = 'pending'`,
+            [versionId]
+          );
+          if (pendingRequests.length > 0) {
+            res.status(400).json({ message: "Cannot submit BOM while there are pending rate change requests." });
+            return;
+          }
         }
 
         if (column_config !== undefined) {
@@ -6850,6 +6866,216 @@ export async function registerRoutes(
       }
     },
   );
+
+  // --- BOM RATE CHANGE REQUESTS ---
+
+  // GET /api/bom-rate-changes/all - Fetch rate change requests across every project (used by the admin Approvals modal)
+  app.get("/api/bom-rate-changes/all", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { rows } = await query(
+        `SELECT * FROM bom_rate_change_requests ORDER BY created_at DESC`
+      );
+      res.json({ rateChanges: rows });
+    } catch (err) {
+      console.error("GET /api/bom-rate-changes/all error", err);
+      res.status(500).json({ message: "Failed to fetch rate change requests" });
+    }
+  });
+
+  // GET /api/bom-rate-changes/:projectId - Fetch rate change requests for a single project
+  app.get("/api/bom-rate-changes/:projectId", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      const { rows } = await query(
+        `SELECT * FROM bom_rate_change_requests WHERE project_id = $1 ORDER BY created_at DESC`,
+        [projectId]
+      );
+      res.json({ rateChanges: rows });
+    } catch (err) {
+      console.error("GET /api/bom-rate-changes error", err);
+      res.status(500).json({ message: "Failed to fetch rate change requests" });
+    }
+  });
+
+  // POST /api/bom-rate-changes - Create a new rate change request
+  app.post("/api/bom-rate-changes", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { project_id, project_name, bom_name, version_id, boq_item_id, product_id, product_name, material_id, material_name, original_rate, requested_rate, remarks } = req.body;
+      const requested_by = (req.user as any).id || (req.user as any).username;
+      const requested_by_name = (req.user as any).fullName || (req.user as any).username;
+
+      const { rows } = await query(
+        `INSERT INTO bom_rate_change_requests (
+          project_id, project_name, bom_name, version_id, boq_item_id, product_id, product_name, material_id, material_name, original_rate, requested_rate, remarks, requested_by, requested_by_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+        [project_id, project_name, bom_name, version_id, boq_item_id, product_id, product_name, material_id, material_name, original_rate, requested_rate, remarks, requested_by, requested_by_name]
+      );
+      res.json(rows[0]);
+    } catch (err) {
+      console.error("POST /api/bom-rate-changes error", err);
+      res.status(500).json({ message: "Failed to create rate change request" });
+    }
+  });
+
+  // POST /api/bom-rate-changes/:id/approve - Approve a rate change
+  app.post("/api/bom-rate-changes/:id/approve", authMiddleware, requireRole("admin", "software_team", "product_manager", "finance_team", "pre_sales"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const approved_by = (req.user as any).id || (req.user as any).username;
+      const approved_by_name = (req.user as any).fullName || (req.user as any).username;
+
+      const { rows: updateRows } = await query(
+        `UPDATE bom_rate_change_requests SET status = 'approved', approved_by = $1, approved_by_name = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
+        [approved_by, approved_by_name, id]
+      );
+
+      if (updateRows.length > 0) {
+        const reqData = updateRows[0];
+
+        // Update boq_items table_data — scan BOTH materialLines and step11_items
+        const { rows: itemRows } = await query(`SELECT table_data FROM boq_items WHERE id = $1`, [reqData.boq_item_id]);
+        if (itemRows.length > 0) {
+          const tableData = typeof itemRows[0].table_data === 'string' ? JSON.parse(itemRows[0].table_data) : itemRows[0].table_data;
+          let updated = false;
+          const matchLine = (line: any) => (
+            (line.id === reqData.material_id || line.materialId === reqData.material_id || line.name === reqData.material_name) && line.rate_amendment_status === 'pending'
+          );
+          // Update materialLines
+          if (tableData && Array.isArray(tableData.materialLines)) {
+            tableData.materialLines = tableData.materialLines.map((line: any) => {
+              if (matchLine(line)) {
+                line.rate_amendment_status = 'approved';
+                updated = true;
+              }
+              return line;
+            });
+          }
+          // Also update step11_items (manual items)
+          if (tableData && Array.isArray(tableData.step11_items)) {
+            tableData.step11_items = tableData.step11_items.map((line: any) => {
+              if (matchLine(line)) {
+                line.rate_amendment_status = 'approved';
+                updated = true;
+              }
+              return line;
+            });
+          }
+          if (updated) {
+            await query(`UPDATE boq_items SET table_data = $1 WHERE id = $2`, [JSON.stringify(tableData), reqData.boq_item_id]);
+          }
+        }
+        // Insert structured history
+        await query(
+          `INSERT INTO boq_history (version_id, user_id, user_full_name, action, reason) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            reqData.version_id,
+            approved_by,
+            approved_by_name,
+            'Rate Amendment Approved',
+            JSON.stringify({
+              material_name: reqData.material_name,
+              original_rate: reqData.original_rate,
+              requested_rate: reqData.requested_rate,
+              changed_by: reqData.requested_by_name,
+              approved_by: approved_by_name,
+              status: 'approved'
+            })
+          ]
+        );
+      }
+
+      res.json({ success: true, request: updateRows[0] });
+    } catch (err) {
+      console.error("POST /api/bom-rate-changes/:id/approve error", err);
+      res.status(500).json({ message: "Failed to approve rate change" });
+    }
+  });
+
+  // POST /api/bom-rate-changes/:id/reject - Reject a rate change
+  app.post("/api/bom-rate-changes/:id/reject", authMiddleware, requireRole("admin", "software_team", "product_manager", "finance_team", "pre_sales"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const rejected_by = (req.user as any).id || (req.user as any).username;
+      const rejected_by_name = (req.user as any).fullName || (req.user as any).username;
+
+      const { rows: updateRows } = await query(
+        `UPDATE bom_rate_change_requests SET status = 'rejected', approved_by = $1, approved_by_name = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
+        [rejected_by, rejected_by_name, id]
+      );
+
+      if (updateRows.length > 0) {
+        const reqData = updateRows[0];
+
+        // Update boq_items table_data and revert rate — scan BOTH materialLines and step11_items
+        const { rows: itemRows } = await query(`SELECT table_data FROM boq_items WHERE id = $1`, [reqData.boq_item_id]);
+        if (itemRows.length > 0) {
+          const tableData = typeof itemRows[0].table_data === 'string' ? JSON.parse(itemRows[0].table_data) : itemRows[0].table_data;
+          let updated = false;
+          const matchLine = (line: any) => (
+            (line.id === reqData.material_id || line.materialId === reqData.material_id || line.name === reqData.material_name) && line.rate_amendment_status === 'pending'
+          );
+          const revertLine = (line: any) => {
+            line.rate_amendment_status = 'rejected';
+            line.rateSqft = reqData.original_rate;
+            line.supply_rate = reqData.original_rate;
+            line.supplyRate = reqData.original_rate;
+            line.rate = reqData.original_rate;
+            if (line.requiredQty !== undefined) {
+              line.amount = (line.rate || 0) * (line.requiredQty || 0);
+            }
+            if (line.qty !== undefined) {
+              line.amount = (line.rate || 0) * (line.qty || 0);
+            }
+            updated = true;
+            return line;
+          };
+          // Revert materialLines
+          if (tableData && Array.isArray(tableData.materialLines)) {
+            tableData.materialLines = tableData.materialLines.map((line: any) => {
+              if (matchLine(line)) return revertLine(line);
+              return line;
+            });
+          }
+          // Also revert step11_items (manual items)
+          if (tableData && Array.isArray(tableData.step11_items)) {
+            tableData.step11_items = tableData.step11_items.map((line: any) => {
+              if (matchLine(line)) return revertLine(line);
+              return line;
+            });
+          }
+          if (updated) {
+            await query(`UPDATE boq_items SET table_data = $1 WHERE id = $2`, [JSON.stringify(tableData), reqData.boq_item_id]);
+          }
+        }
+        // Insert structured history
+        await query(
+          `INSERT INTO boq_history (version_id, user_id, user_full_name, action, reason) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            reqData.version_id,
+            rejected_by,
+            rejected_by_name,
+            'Rate Amendment Rejected',
+            JSON.stringify({
+              material_name: reqData.material_name,
+              original_rate: reqData.original_rate,
+              requested_rate: reqData.requested_rate,
+              changed_by: reqData.requested_by_name,
+              rejected_by: rejected_by_name,
+              status: 'rejected'
+            })
+          ]
+        );
+      }
+
+      res.json({ success: true, request: updateRows[0] });
+    } catch (err) {
+      console.error("POST /api/bom-rate-changes/:id/reject error", err);
+      res.status(500).json({ message: "Failed to reject rate change" });
+    }
+  });
+
 
   // Pure function: computes the monetary value for a single BOQ item's table_data.
   // This is a verbatim extraction of the per-item math inside recalculateProjectValue —
@@ -9794,17 +10020,17 @@ export async function registerRoutes(
               const engineLines = tableData.materialLines.map((l: any) => {
                 const baseQty = Number(l.baseQty || l.qty || 0);
                 const applyR = l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : (l.applyRounding !== undefined ? Boolean(l.applyRounding) : true);
-                
+
                 const applyW = l.applyWastage !== false;
                 let defaultW = 0;
                 if (tableData.configBasis?.wastagePctDefault !== undefined) {
-                    defaultW = Number(tableData.configBasis.wastagePctDefault) / 100;
+                  defaultW = Number(tableData.configBasis.wastagePctDefault) / 100;
                 }
                 const rowWRaw = l.wastagePct !== undefined ? Number(l.wastagePct) : NaN;
                 const rowW = !isNaN(rowWRaw) ? rowWRaw / 100 : undefined;
                 const wastagePctUsed = applyW ? (rowW !== undefined ? rowW : defaultW) : 0;
                 const wastageQty = baseQty * wastagePctUsed;
-                
+
                 const isFrozenQty = (l.freezeAndEdit === true || l.freezeAndEdit === "true" || l.freezeAndEdit === 1 || l.freeze_and_edit === true || l.freeze_and_edit === "true" || l.freeze_and_edit === 1);
 
                 // Include wastage so PO matches BOM exactly
@@ -9933,8 +10159,9 @@ export async function registerRoutes(
             if (!aggregatedItems.has(key)) {
               // Store first instance
               const qty = parseFloat(item.qty || item.quantity || 0) || 0;
-              const supplyRate = parseFloat(item.supply_rate || item.supplyRate || item.rate || 0) || 0;
-              const installRate = parseFloat(item.install_rate || item.installRate || 0) || 0;
+              const origRate = item.original_rate !== undefined && item.original_rate !== null ? parseFloat(item.original_rate) : null;
+              const supplyRate = origRate !== null ? origRate : (parseFloat(item.supply_rate || item.supplyRate || item.rate || 0) || 0);
+              const installRate = origRate !== null ? 0 : (parseFloat(item.install_rate || item.installRate || 0) || 0);
               const rate = supplyRate + installRate;
 
               aggregatedItems.set(key, {
@@ -12583,4 +12810,3 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
 
   return httpServer;
 }
-

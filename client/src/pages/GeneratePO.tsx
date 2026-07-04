@@ -1310,11 +1310,22 @@ export default function GeneratePo() {
     const td = parseTableData(boqItem.table_data);
     const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
     if (td.materialLines && td.targetRequiredQty !== undefined) {
-      return computeBoq({ ...td.configBasis, wastagePctDefault: 0 }, td.materialLines.map((l: any) => ({ ...l, applyWastage: false })), td.targetRequiredQty).computed.map((l: any) => ({ title: l.name, description: l.name, unit: l.unit, qty: l.scaledQty, supply_rate: l.supplyRate, install_rate: l.installRate, supply_amount: l.supplyAmount, install_amount: l.installAmount, shop_name: l.shop_name }));
+      // For PO: revert any pending amendments to original rate
+      const safeLines = td.materialLines.map((l: any) => {
+        if (String(l.rate_amendment_status) === 'pending' && l.original_rate !== undefined) {
+          return { ...l, applyWastage: false, supplyRate: l.original_rate, rateSqft: l.original_rate };
+        }
+        return { ...l, applyWastage: false };
+      });
+      return computeBoq({ ...td.configBasis, wastagePctDefault: 0 }, safeLines, td.targetRequiredQty).computed.map((l: any) => ({ title: l.name, description: l.name, unit: l.unit, qty: l.scaledQty, supply_rate: l.supplyRate, install_rate: l.installRate, supply_amount: l.supplyAmount, install_amount: l.installAmount, shop_name: l.shop_name }));
     }
     return step11.map((it: any, idx: number) => {
       const key = `${boqItem.id}-${idx}`;
-      return { ...it, qty: getEditedValue(key, "qty", it.qty ?? 0), supply_rate: getEditedValue(key, "supply_rate", it.supply_rate ?? 0), install_rate: getEditedValue(key, "install_rate", it.install_rate ?? 0), description: getEditedValue(key, "description", it.description ?? ""), unit: getEditedValue(key, "unit", it.unit ?? "") };
+      // For PO: use original_rate if amendment is pending
+      const sr = String(it.rate_amendment_status) === 'pending' && it.original_rate !== undefined
+        ? it.original_rate
+        : getEditedValue(key, "supply_rate", it.supply_rate ?? 0);
+      return { ...it, qty: getEditedValue(key, "qty", it.qty ?? 0), supply_rate: sr, install_rate: getEditedValue(key, "install_rate", it.install_rate ?? 0), description: getEditedValue(key, "description", it.description ?? ""), unit: getEditedValue(key, "unit", it.unit ?? "") };
     });
   };
 
