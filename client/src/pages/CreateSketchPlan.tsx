@@ -69,7 +69,7 @@ interface PlanItem {
   height: string;
   qty: string;
   unit: string;
-  dimension_unit: "feet" | "mm" | "inch" | "cm" | "meter" | "sqft" | "sqmt" | "rft" | "rmt" | "nos" | "pcs" | "kg" | "litre" | "set" | "ls";
+  dimension_unit: "feet" | "mm" | "inch" | "cm" | "meter" | "sqft" | "sqmt" | "rft" | "rmt" | "cmt" | "cft" | "nos" | "pcs" | "kg" | "litre" | "set" | "ls";
   remarks: string;
   rate?: number; // Material rate
   dimensions?: { id: string; length: string; width: string; height: string; note?: string }[];
@@ -952,6 +952,8 @@ const SketchPlanRow = React.memo(({
               <SelectItem value="sqmt">sqmt</SelectItem>
               <SelectItem value="rft">rft</SelectItem>
               <SelectItem value="rmt">rmt</SelectItem>
+              <SelectItem value="cmt">cmt</SelectItem>
+              <SelectItem value="cft">cft</SelectItem>
               <SelectItem value="nos">nos</SelectItem>
               <SelectItem value="pcs">pcs</SelectItem>
               <SelectItem value="kg">kg</SelectItem>
@@ -1437,6 +1439,8 @@ export default function CreateSketchPlan() {
     if (u === "sqmt" || u === "sqm") return "sqmt";
     if (u === "rft") return "rft";
     if (u === "rmt") return "rmt";
+    if (u === "cmt") return "cmt";
+    if (u === "cft") return "cft";
     if (u === "nos" || u === "no") return "nos";
     if (u === "pcs" || u === "pc" || u === "piece") return "pcs";
     if (u === "kg" || u === "kilo") return "kg";
@@ -3082,7 +3086,7 @@ export default function CreateSketchPlan() {
       doc.text(`Date: ${planDate}`, metaX, headerBoxY + 19, { align: "right" });
 
       const getDisplayUnit = (u: string) => {
-        const unitMap: any = { feet: "ft", mm: "mm", inch: "in", cm: "cm", meter: "m", sqft: "sqft", sqmt: "sqmt", rft: "rft", rmt: "rmt", nos: "nos", pcs: "pcs", kg: "kg", litre: "ltr", set: "set", ls: "LS" };
+        const unitMap: any = { feet: "ft", mm: "mm", inch: "in", cm: "cm", meter: "m", sqft: "sqft", sqmt: "sqmt", rft: "rft", rmt: "rmt", cmt: "cmt", cft: "cft", nos: "nos", pcs: "pcs", kg: "kg", litre: "ltr", set: "set", ls: "LS" };
         return unitMap[u] || u;
       };
 
@@ -3276,7 +3280,7 @@ export default function CreateSketchPlan() {
       ];
 
       const getDisplayUnit = (u: string) => {
-        const unitMap: any = { feet: "ft", mm: "mm", inch: "in", cm: "cm", meter: "m", sqft: "sqft", sqmt: "sqmt", rft: "rft", rmt: "rmt", nos: "nos", pcs: "pcs", kg: "kg", litre: "ltr", set: "set", ls: "LS" };
+        const unitMap: any = { feet: "ft", mm: "mm", inch: "in", cm: "cm", meter: "m", sqft: "sqft", sqmt: "sqmt", rft: "rft", rmt: "rmt", cmt: "cmt", cft: "cft", nos: "nos", pcs: "pcs", kg: "kg", litre: "ltr", set: "set", ls: "LS" };
         return unitMap[u] || u;
       };
 
