@@ -190,24 +190,13 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
               onChange={(e) => {
                 const val = e.target.value;
                 const parsed = parseFloat(val);
-                if (amendRatesActive && !isNaN(parsed)) {
-                  const origRate = item.original_rate ?? item.original_engine_rate ?? item.rateSqft;
-                  if (parsed < origRate) {
-                    // Clamp immediately — don't allow decrease
-                    setLocalRate(origRate.toString());
-                    updateEditedField(itemKey, "rate", origRate);
-                    updateEditedField(itemKey, "supply_rate", origRate);
-                    updateEditedField(itemKey, "install_rate", 0);
-                    updateEditedField(itemKey, "rate_amendment_status", null);
-                    toast({ title: "Rate cannot be decreased", description: `Minimum rate is ₹${origRate}`, variant: "destructive" });
-                    return;
-                  }
-                }
                 setLocalRate(val);
                 if (!isNaN(parsed)) {
-                  updateEditedField(itemKey, "rate", parsed);
-                  updateEditedField(itemKey, "supply_rate", parsed);
-                  updateEditedField(itemKey, "install_rate", 0);
+                  if (!amendRatesActive || parsed >= (item.original_rate ?? item.original_engine_rate ?? item.rateSqft)) {
+                    updateEditedField(itemKey, "rate", parsed);
+                    updateEditedField(itemKey, "supply_rate", parsed);
+                    updateEditedField(itemKey, "install_rate", 0);
+                  }
                   if (amendRatesActive) {
                     const origRate = item.original_rate ?? item.original_engine_rate ?? item.rateSqft;
                     if (parsed > origRate) {
@@ -220,9 +209,11 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
                     }
                   }
                 } else if (val === "") {
-                  updateEditedField(itemKey, "rate", 0);
-                  updateEditedField(itemKey, "supply_rate", 0);
-                  updateEditedField(itemKey, "install_rate", 0);
+                  if (!amendRatesActive || 0 >= (item.original_rate ?? item.original_engine_rate ?? item.rateSqft)) {
+                    updateEditedField(itemKey, "rate", 0);
+                    updateEditedField(itemKey, "supply_rate", 0);
+                    updateEditedField(itemKey, "install_rate", 0);
+                  }
                 }
               }}
               onBlur={() => {
@@ -478,23 +469,13 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
           onChange={(e) => {
             const val = e.target.value;
             const parsed = parseFloat(val);
-            if (amendRatesActive && !isNaN(parsed)) {
-              const origRate = item.original_rate ?? item.original_engine_rate ?? (Number(item.supply_rate || 0) + Number(item.install_rate || 0));
-              if (parsed < origRate) {
-                setLocalRate(origRate.toString());
-                updateEditedField(itemKey, "rate", origRate);
-                updateEditedField(itemKey, "supply_rate", origRate);
-                updateEditedField(itemKey, "install_rate", 0);
-                updateEditedField(itemKey, "rate_amendment_status", null);
-                toast({ title: "Rate cannot be decreased", description: `Minimum rate is ₹${origRate}`, variant: "destructive" });
-                return;
-              }
-            }
             setLocalRate(val);
             if (!isNaN(parsed)) {
-              updateEditedField(itemKey, "rate", parsed);
-              updateEditedField(itemKey, "supply_rate", parsed);
-              updateEditedField(itemKey, "install_rate", 0);
+              if (!amendRatesActive || parsed >= (item.original_rate ?? item.original_engine_rate ?? (Number(item.supply_rate || 0) + Number(item.install_rate || 0)))) {
+                updateEditedField(itemKey, "rate", parsed);
+                updateEditedField(itemKey, "supply_rate", parsed);
+                updateEditedField(itemKey, "install_rate", 0);
+              }
               if (amendRatesActive) {
                 const origRate = item.original_rate ?? item.original_engine_rate ?? (Number(item.supply_rate || 0) + Number(item.install_rate || 0));
                 if (parsed > origRate) {
@@ -507,9 +488,11 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
                 }
               }
             } else if (val === "") {
-              updateEditedField(itemKey, "rate", 0);
-              updateEditedField(itemKey, "supply_rate", 0);
-              updateEditedField(itemKey, "install_rate", 0);
+              if (!amendRatesActive || 0 >= (item.original_rate ?? item.original_engine_rate ?? (Number(item.supply_rate || 0) + Number(item.install_rate || 0)))) {
+                updateEditedField(itemKey, "rate", 0);
+                updateEditedField(itemKey, "supply_rate", 0);
+                updateEditedField(itemKey, "install_rate", 0);
+              }
             }
           }}
           onBlur={() => {
@@ -601,6 +584,7 @@ export const BoqItemRow = React.memo(function BoqItemRow({ item, itemIdx, boqIte
     prevProps.isVersionSubmitted === nextProps.isVersionSubmitted &&
     prevProps.isDragOver === nextProps.isDragOver &&
     prevProps.mismatch === nextProps.mismatch &&
-    prevProps.isCompactView === nextProps.isCompactView
+    prevProps.isCompactView === nextProps.isCompactView &&
+    prevProps.amendRatesActive === nextProps.amendRatesActive
   );
 });

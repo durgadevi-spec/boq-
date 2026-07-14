@@ -112,7 +112,7 @@ export function ApprovalsList({
                 <div className="w-4 h-4 border border-slate-300 rounded bg-slate-50/50"></div>
               </TableHead>
               <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-4">Project</TableHead>
-              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Client</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{listType === 'rates' ? 'Item Details' : 'Client'}</TableHead>
               <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">Version</TableHead>
               <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">Type</TableHead>
               <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">Status</TableHead>
@@ -144,9 +144,14 @@ export function ApprovalsList({
                     <TableCell className="w-10 px-0">
                       <div className="w-4 h-4 border border-slate-200 rounded hover:border-blue-400 transition-colors"></div>
                     </TableCell>
-                    <TableCell className="font-bold text-slate-900 text-sm py-4">{r.product_name}</TableCell>
-                    <TableCell className="text-sm text-slate-600 italic font-medium">{r.material_name}</TableCell>
-                    <TableCell className="text-center font-bold text-slate-500 text-xs">V{r.version_id.substring(0,6)}</TableCell>
+                    <TableCell className="font-bold text-slate-900 text-sm py-4">{r.project_name || "Unknown Project"}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-800">{r.product_name}</span>
+                        <span className="text-xs text-slate-500 italic">{r.material_name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center font-bold text-slate-500 text-xs">V{r.version_number ?? r.version_id.substring(0,6)}</TableCell>
                     <TableCell className="text-center py-4">
                       <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-100 font-bold px-2 py-0 text-[10px] h-5">Rate Amend</Badge>
                     </TableCell>

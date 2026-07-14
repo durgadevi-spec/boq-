@@ -6873,7 +6873,10 @@ export async function registerRoutes(
   app.get("/api/bom-rate-changes/all", authMiddleware, async (req: Request, res: Response) => {
     try {
       const { rows } = await query(
-        `SELECT * FROM bom_rate_change_requests ORDER BY created_at DESC`
+        `SELECT r.*, v.version_number 
+         FROM bom_rate_change_requests r
+         LEFT JOIN boq_versions v ON r.version_id = v.id
+         ORDER BY r.created_at DESC`
       );
       res.json({ rateChanges: rows });
     } catch (err) {
@@ -6887,7 +6890,10 @@ export async function registerRoutes(
     try {
       const { projectId } = req.params;
       const { rows } = await query(
-        `SELECT * FROM bom_rate_change_requests WHERE project_id = $1 ORDER BY created_at DESC`,
+        `SELECT r.*, v.version_number 
+         FROM bom_rate_change_requests r
+         LEFT JOIN boq_versions v ON r.version_id = v.id
+         WHERE r.project_id = $1 ORDER BY r.created_at DESC`,
         [projectId]
       );
       res.json({ rateChanges: rows });

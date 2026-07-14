@@ -155,6 +155,7 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
         freeze_and_edit: line.freeze_and_edit,
         category: line.category,
         is_project_pricing: line.is_project_pricing,
+        indicate: getEditedValue(itemKey, "indicate", line.indicate || false),
         // Rate amendment fields
         original_engine_rate: originalEngineRate,
         original_rate: getEditedValue(itemKey, "original_rate", line.original_rate),
@@ -192,6 +193,7 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
         amount,
         supply_rate: sRate,
         install_rate: iRate,
+        indicate: getEditedValue(itemKey, "indicate", it.indicate || false),
         original_engine_rate: originalEngineRate,
         original_rate: getEditedValue(itemKey, "original_rate", it.original_rate),
         rate_amendment_status: getEditedValue(itemKey, "rate_amendment_status", it.rate_amendment_status),
@@ -227,6 +229,7 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
         rateSqft: rate,
         amount,
         manual: isManual,
+        indicate: getEditedValue(itemKey, "indicate", it.indicate || false),
         original_engine_rate: originalEngineRate,
         original_rate: getEditedValue(itemKey, "original_rate", it.original_rate),
         rate_amendment_status: getEditedValue(itemKey, "rate_amendment_status", it.rate_amendment_status),
@@ -380,7 +383,15 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
                 Fixed Rate
               </label>
               <label className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm cursor-pointer whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                <input type="checkbox" checked={isProductIndicate} onChange={(e) => updateEditedField(boqItem.id, "indicate", e.target.checked)} />
+                <input type="checkbox" checked={isProductIndicate} onChange={async (e) => {
+                  const checked = e.target.checked;
+                  updateEditedField(boqItem.id, "indicate", checked);
+                  try {
+                    const updatedTd = { ...tableData, indicate: checked };
+                    const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
+                    if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
+                  } catch (err) { console.error("Failed to save indicate", err); }
+                }} />
                 Indicate
               </label>
             </div>
@@ -742,10 +753,10 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
   const prevOwn: Record<string, any> = {};
   const nextOwn: Record<string, any> = {};
   for (const k of Object.keys(prevProps.editedFields)) {
-    if (k.startsWith(prefix)) prevOwn[k] = prevProps.editedFields[k];
+    if (k.startsWith(prefix) || k === prevProps.boqItem.id) prevOwn[k] = prevProps.editedFields[k];
   }
   for (const k of Object.keys(nextProps.editedFields)) {
-    if (k.startsWith(prefix)) nextOwn[k] = nextProps.editedFields[k];
+    if (k.startsWith(prefix) || k === nextProps.boqItem.id) nextOwn[k] = nextProps.editedFields[k];
   }
 
   // Only re-render if the boqItem data itself changed, or its expanded state, or if dragging state changed

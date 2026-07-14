@@ -127,4 +127,7 @@ app.use((req, res, next) => {
   );
 
   console.log("[index] httpServer.listen() called (async)");
-})();
+})().catch(err => {
+  console.error("[index] Fatal error during startup:", err);
+  process.exit(1);
+});

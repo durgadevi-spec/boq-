@@ -1536,8 +1536,8 @@ export default function CreateBom() {
       } catch { continue; }
       if (!td) continue;
       const productName = td.product_name || (boqItem as any).estimator || '';
-      const projectId = td.project_id || boqItem.id;
-      const projectName = td.project_name || productName;
+      const projectId = selectedProjectId || td.project_id || boqItem.id;
+      const projectName = selectedProject?.name || td.project_name || productName;
 
       const materialLines: any[] = td.materialLines || [];
       const step11Items: any[] = td.step11_items || [];

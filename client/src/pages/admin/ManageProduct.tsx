@@ -105,7 +105,25 @@ export default function ManageProduct() {
     const [dateSort, setDateSort] = useState<"newest" | "oldest">("newest");
     const [statusFilter, setStatusFilter] = useState<string>("All");
 
-    const isReadOnly = loadedConfig?.status === "approved" || loadedConfig?.status === "pending" || isSubmitted;
+    // Check if the current configName has an approved version (in step11 configs or product_approvals)
+    const configNameIsApproved = useMemo(() => {
+        if (!configName) return false;
+        const approvedInStep11 = previousConfigs.some(c =>
+            c.product.config_name === configName && c.product.status === "approved"
+        );
+        const approvedInApprovals = productApprovals.some((a: any) =>
+            a.config_name === configName && a.status === "approved"
+        );
+        return approvedInStep11 || approvedInApprovals;
+    }, [configName, previousConfigs, productApprovals]);
+
+    // Check if user has been granted edit access for this config_name (admin-approved draft in product_approvals)
+    const hasEditAccess = useMemo(() => {
+        if (!configName) return false;
+        return draftConfigs.some((d: any) => d.config_name === configName);
+    }, [configName, draftConfigs]);
+
+    const isReadOnly = loadedConfig?.status === "approved" || loadedConfig?.status === "pending" || isSubmitted || (configNameIsApproved && !hasEditAccess);
     const { toast } = useToast();
 
     const searchParams = useMemo(() => new URLSearchParams(location.split('?')[1] || ""), [location]);
@@ -476,17 +494,63 @@ export default function ManageProduct() {
 
     const loadExistingConfig = async (product: Product) => {
         try {
-            const s3 = await apiFetch(`/api/product-step3-config/${product.id}`);
-            if (s3.ok) { const d = await s3.json(); if (d.items?.length > 0) { applyConfig(d.config, d.items, `Loaded Step 3 config for ${product.name}.`); return; } }
-            const res = await apiFetch(`/api/step11-products/${product.id}`);
-            if (res.ok) {
-                const d = await res.json();
-                if (d.configurations?.length > 0) {
-                    const latest = d.configurations[0];
-                    applyConfig(latest.product, latest.items, `Loaded config "${latest.product.config_name || "Unnamed"}" for ${product.name}.`);
+            // Fetch step11 configurations and approvals first to check for approved configs
+            const [s3Res, step11Res, approvalsRes] = await Promise.all([
+                apiFetch(`/api/product-step3-config/${product.id}`),
+                apiFetch(`/api/step11-products/${product.id}`),
+                apiFetch(`/api/product-approvals`)
+            ]);
+
+            let step11Configs: any[] = [];
+            if (step11Res.ok) {
+                const d = await step11Res.json();
+                step11Configs = d.configurations || [];
+            }
+
+            // Build a set of approved config_names for this product
+            const approvedConfigNames = new Set<string>();
+            step11Configs.filter((c: any) => c.product.status === "approved").forEach((c: any) => {
+                if (c.product.config_name) approvedConfigNames.add(c.product.config_name);
+            });
+            if (approvalsRes.ok) {
+                const d = await approvalsRes.json();
+                (d.approvals || []).filter((a: any) => String(a.product_id) === String(product.id) && a.status === "approved")
+                    .forEach((a: any) => { if (a.config_name) approvedConfigNames.add(a.config_name); });
+            }
+
+            // Try Step 3 draft — but skip if its config_name matches an approved config
+            if (s3Res.ok) {
+                const d = await s3Res.json();
+                if (d.items?.length > 0) {
+                    const s3ConfigName = d.config?.config_name || "";
+                    if (!s3ConfigName || !approvedConfigNames.has(s3ConfigName)) {
+                        applyConfig(d.config, d.items, `Loaded Step 3 config for ${product.name}.`);
+                        return;
+                    }
+                    // Step 3 draft matches approved config — skip it, fall through to load approved
+                }
+            }
+
+            // Try Step 11 configs — prefer approved, skip drafts that match approved
+            if (step11Configs.length > 0) {
+                // First try to load the approved config
+                const approvedConfig = step11Configs.find((c: any) => c.product.status === "approved");
+                if (approvedConfig) {
+                    applyConfig(approvedConfig.product, approvedConfig.items, `Loaded approved config "${approvedConfig.product.config_name || "Unnamed"}" for ${product.name}.`);
+                    return;
+                }
+                // Then try drafts that DON'T match an approved name
+                const safeDraft = step11Configs.find((c: any) => {
+                    if (c.product.status !== "draft") return false;
+                    const cn = c.product.config_name || "";
+                    return !cn || !approvedConfigNames.has(cn);
+                });
+                if (safeDraft) {
+                    applyConfig(safeDraft.product, safeDraft.items, `Loaded config "${safeDraft.product.config_name || "Unnamed"}" for ${product.name}.`);
                     return;
                 }
             }
+
             // Auto-load pending config if no other config exists
             let pending = null;
             if (allApprovals) {
@@ -1230,7 +1294,17 @@ export default function ManageProduct() {
                                                         <SelectTrigger className="h-12 bg-white border-primary/30 shadow-sm"><SelectValue placeholder="Choose a previous config..." /></SelectTrigger>
                                                         <SelectContent className="max-h-[300px]">
                                                             <SelectItem value="none" className="text-muted-foreground italic border-b border-muted/20 pb-2">-- Clear Selection / Start Fresh --</SelectItem>
-                                                            {previousConfigs.map(cd => (
+                                                            {previousConfigs.filter(cd => {
+                                                                // Hide drafts whose config_name matches an approved config (avoid duplicates)
+                                                                if (cd.product.status === "draft") {
+                                                                    const cn = cd.product.config_name || "";
+                                                                    if (cn && (
+                                                                        previousConfigs.some(ac => ac.product.config_name === cn && ac.product.status === "approved") ||
+                                                                        productApprovals.some((a: any) => a.config_name === cn && a.status === "approved")
+                                                                    )) return false;
+                                                                }
+                                                                return true;
+                                                            }).map(cd => (
                                                                 <SelectItem key={cd.product.id} value={cd.product.id.toString()}>
                                                                     <div className="flex flex-col">
                                                                         <span className="font-bold">{cd.product.config_name || "Unnamed Configuration"}</span>
@@ -1487,12 +1561,29 @@ export default function ManageProduct() {
                                                     </div>
                                                 )}
 
-                                                {/* Drafts */}
+                                                {/* Drafts — hide drafts whose config_name matches an approved config */}
                                                 <div className="space-y-3 p-5 bg-blue-50/10 rounded-2xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-right-4 duration-500">
                                                     <h3 className="text-sm font-black uppercase tracking-widest text-blue-600 flex items-center gap-2"><Layers className="h-4 w-4" /> Recent Drafts</h3>
                                                     <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                                                        {previousConfigs.filter(c => c.product.status === "draft").length > 0 ? (
-                                                            previousConfigs.filter(c => c.product.status === "draft").map(cd => {
+                                                        {previousConfigs.filter(c => {
+                                                            if (c.product.status !== "draft") return false;
+                                                            // Hide drafts whose config_name matches an approved config (they already show in Approved section)
+                                                            const cn = c.product.config_name || "";
+                                                            if (cn && (
+                                                                previousConfigs.some(ac => ac.product.config_name === cn && ac.product.status === "approved") ||
+                                                                productApprovals.some((a: any) => a.config_name === cn && a.status === "approved")
+                                                            )) return false;
+                                                            return true;
+                                                        }).length > 0 ? (
+                                                            previousConfigs.filter(c => {
+                                                                if (c.product.status !== "draft") return false;
+                                                                const cn = c.product.config_name || "";
+                                                                if (cn && (
+                                                                    previousConfigs.some(ac => ac.product.config_name === cn && ac.product.status === "approved") ||
+                                                                    productApprovals.some((a: any) => a.config_name === cn && a.status === "approved")
+                                                                )) return false;
+                                                                return true;
+                                                            }).map(cd => {
                                                                 const savedPrice = Number(cd.product.total_cost || 0);
                                                                 const currentPrice = getConfigCurrentTotal(cd);
                                                                 const priceMismatches = getConfigPriceMismatches(cd);
