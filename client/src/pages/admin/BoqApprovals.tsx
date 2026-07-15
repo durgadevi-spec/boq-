@@ -18,6 +18,152 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { computeBoq, linesFromTableData, basisFromTableData } from "@/lib/boqCalc";
 
+// ─── Shared helpers (mirrored from FinalizeBoq.tsx) ────────────────────────
+const applyOperator = (base: number, mult: number, op: string) => {
+  if (op === "%") return base * (mult / 100);
+  if (op === "*") return base * mult;
+  if (op === "/") return mult !== 0 ? base / mult : 0;
+  return base + mult; // "+"
+};
+
+type SrcCtx = {
+  totalVal: number; rate: number; qty: number;
+  overrideRate: number; overrideTotal: number;
+  rowCalc: Record<string, number>;
+  customVals: Record<string, string>;
+};
+
+const resolveSource = (src: string, ctx: SrcCtx): number => {
+  if (src === "Total Value (₹)") return ctx.totalVal;
+  if (src === "Rate / Unit") return ctx.rate;
+  if (src === "Qty") return ctx.qty;
+  if (src === "Override Rate") return ctx.overrideRate;
+  if (src === "Override Total") return ctx.overrideTotal;
+  if (ctx.rowCalc[src] !== undefined) return ctx.rowCalc[src];
+  return parseFloat(ctx.customVals[src] || "0") || 0;
+};
+
+const getItemMetrics = (td: any) => {
+  const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
+  let itemTotal = 0, itemQty = 0;
+  if (td.targetRequiredQty !== undefined && td.targetRequiredQty !== null) {
+    if (td.materialLines) {
+      const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
+      const manualTotal = step11.filter((it: any) => it.manual).reduce((s: number, it: any) =>
+        s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+      itemTotal = res.grandTotal + manualTotal;
+    } else {
+      itemTotal = step11.reduce((s: number, it: any) =>
+        s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+    }
+    itemQty = td.targetRequiredQty;
+  } else {
+    itemTotal = step11.reduce((s: number, it: any) =>
+      s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+    itemQty = step11[0]?.qty || 0;
+  }
+  let finalRate = itemQty > 0 ? itemTotal / itemQty : itemTotal;
+
+  if (td.is_lump_sum) {
+    itemQty = 1;
+    finalRate = itemTotal;
+  }
+
+  if (td.use_standard_rate && td.materialLines) {
+    try {
+      const baseQty = Number(td.configBasis?.baseRequiredQty || 1);
+      const resBase = computeBoq({ ...td.configBasis, wastagePctDefault: 0 }, td.materialLines.map((l: any) => ({ ...l, applyWastage: false })), baseQty);
+      finalRate = resBase.grandTotal / baseQty;
+      itemTotal = finalRate * itemQty;
+    } catch { }
+  } else if (td.use_fixed_rate) {
+    finalRate = Number(td.fixed_rate || 0);
+    itemTotal = finalRate * itemQty;
+  }
+  return { itemTotal, itemQty, itemRate: finalRate, step11 };
+};
+
+/** Compute all per-item values matching FinalizeBoq logic exactly */
+const computeItemRow = (td: any, cols: any[]) => {
+  const { itemRate, itemQty, step11 } = getItemMetrics(td);
+
+  // Use finalize_qty / finalize_unit overrides if present
+  const isLumpSum = td.is_lump_sum || (td.finalize_unit || td.unit || '').toLowerCase() === 'ls';
+  const displayQty = isLumpSum ? 1 : (
+    td.finalize_qty !== undefined && td.finalize_qty !== null
+      ? Number(td.finalize_qty)
+      : itemQty
+  );
+
+  const baseTotalValue = itemRate * displayQty;
+
+  // Override calculation — matches FinalizeBoq exactly
+  const overrideInputVal = Number(td.finalize_override_rate || 0);
+  const overrideType = td.finalize_override_type || 'value';
+  let effectiveOverrideRate = 0;
+  if (overrideType === 'percentage') {
+    effectiveOverrideRate = itemRate * overrideInputVal / 100;
+  } else {
+    effectiveOverrideRate = overrideInputVal;
+  }
+  const overrideMarkupTotal = effectiveOverrideRate * displayQty;
+  // % mode: adds markup on top of system total.  ₹ mode: replaces rate entirely.
+  const overrideTotalVal = overrideInputVal !== 0
+    ? (overrideType === 'percentage' ? (baseTotalValue + overrideMarkupTotal) : overrideMarkupTotal)
+    : baseTotalValue;
+
+  // Column calculations — matches FinalizeBoq calculatedColumnTotals logic
+  let currentItemRunningTotal = overrideTotalVal;
+  let accumulator = 0;
+  const rowCalculatedValues: Record<string, number> = {};
+
+  const colValues: number[] = [];
+  cols.forEach((col: any) => {
+    if (col.isTotal) {
+      currentItemRunningTotal += accumulator;
+      accumulator = 0;
+      rowCalculatedValues[col.name] = currentItemRunningTotal;
+      colValues.push(currentItemRunningTotal);
+    } else {
+      let val = 0;
+      const baseSource = col.baseSource;
+      const operator = col.operator || "%";
+      const multiplierSource = col.multiplierSource || "manual";
+      const manualMultiplier = col.percentageValue || 0;
+
+      if (baseSource && baseSource !== "manual") {
+        const _ctx: SrcCtx = {
+          totalVal: baseTotalValue, rate: itemRate, qty: displayQty,
+          overrideRate: effectiveOverrideRate,
+          overrideTotal: overrideTotalVal,
+          rowCalc: rowCalculatedValues, customVals: {},
+        };
+        const baseVal = resolveSource(baseSource, _ctx);
+        const multiplierVal = multiplierSource === "manual" ? manualMultiplier : resolveSource(multiplierSource, _ctx);
+        val = applyOperator(baseVal, multiplierVal, operator);
+      } else {
+        const multiplier = Number(col.percentageValue || 0);
+        const op = col.operator || "%";
+        let base = currentItemRunningTotal;
+        if (col.baseSource === "Basic Total (₹)" || col.baseSource === "Total Value (₹)") base = baseTotalValue;
+        else if (col.baseSource === "Override Total") base = overrideTotalVal;
+        else if (col.baseSource && rowCalculatedValues[col.baseSource] !== undefined) base = rowCalculatedValues[col.baseSource];
+        val = applyOperator(base, multiplier, op);
+      }
+      rowCalculatedValues[col.name] = val;
+      accumulator += val;
+      colValues.push(val);
+    }
+  });
+
+  return {
+    itemRate, displayQty, baseTotalValue, effectiveOverrideRate,
+    overrideTotalVal, overrideMarkupTotal, overrideInputVal, overrideType,
+    colValues, rowCalculatedValues, step11,
+    finalRunningTotal: currentItemRunningTotal + accumulator,
+  };
+};
+
 type BOQApproval = {
     id: string;
     project_id: string;
@@ -26,6 +172,8 @@ type BOQApproval = {
     version_number: number;
     status: string;
     created_at: string;
+    updated_at?: string;
+    project_value?: number | string;
     type: "bom" | "boq";
     column_config?: any;
 };
@@ -212,6 +360,7 @@ export default function BoqApprovals() {
                             <TableHead>Project</TableHead>
                             <TableHead>Client</TableHead>
                             <TableHead>Version</TableHead>
+                            <TableHead className="text-right">Grand Total</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Date</TableHead>
                             <TableHead className="text-center">Actions</TableHead>
@@ -231,6 +380,9 @@ export default function BoqApprovals() {
                                 <TableCell className="font-bold">{approval.project_name}</TableCell>
                                 <TableCell>{approval.project_client}</TableCell>
                                 <TableCell>V{approval.version_number}</TableCell>
+                                <TableCell className="text-right font-bold whitespace-nowrap">
+                                    {approval.project_value ? `₹${Number(approval.project_value).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}
+                                </TableCell>
                                 <TableCell>
                                     <Badge className={
                                         approval.status === 'approved' ? "bg-green-100 text-green-700" :
@@ -241,7 +393,7 @@ export default function BoqApprovals() {
                                         {approval.status.replace('_', ' ').toUpperCase()}
                                     </Badge>
                                 </TableCell>
-                                <TableCell>{new Date(approval.created_at).toLocaleDateString()}</TableCell>
+                                <TableCell>{new Date(approval.updated_at || approval.created_at).toLocaleDateString()}</TableCell>
                                 <TableCell>
                                     <div className="flex items-center justify-center gap-2">
                                         <Button
@@ -405,86 +557,38 @@ export default function BoqApprovals() {
                                                     {previewItems.map((item, idx) => {
                                                         let td = item.table_data || {};
                                                         if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
-                                                        const currentStep11Items = Array.isArray(td.step11_items) ? td.step11_items : [];
                                                         const productName = td.product_name || item.estimator || "—";
-                                                        const qty = td.finalize_qty !== undefined && td.finalize_qty !== null ? Number(td.finalize_qty) : (td.targetRequiredQty || (currentStep11Items[0]?.qty ?? 0));
-                                                        let sysTotal = 0;
-                                                        let baseRate = 0;
-                                                        if (td.materialLines) {
-                                                            const calc = computeBoq(basisFromTableData(td), linesFromTableData(td), qty);
-                                                            sysTotal = calc.grandTotal;
-                                                            baseRate = qty > 0 ? sysTotal / qty : sysTotal;
-                                                        } else {
-                                                            sysTotal = currentStep11Items.reduce((s: number, it: any) => s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
-                                                            baseRate = (currentStep11Items[0]?.qty ?? 0) > 0 ? sysTotal / (currentStep11Items[0]?.qty || 1) : sysTotal;
+
+                                                        // Get columns
+                                                        let cols = previewVersion?.column_config;
+                                                        if (typeof cols === 'string') try { cols = JSON.parse(cols); } catch { cols = null; }
+                                                        if (!cols || (Array.isArray(cols) && cols.length === 0)) {
+                                                            if (previewItems.length > 0) {
+                                                                let firstTd = previewItems[0].table_data;
+                                                                if (typeof firstTd === 'string') try { firstTd = JSON.parse(firstTd); } catch { firstTd = {}; }
+                                                                cols = firstTd.finalize_columns || [];
+                                                            }
                                                         }
-                                                        
-                                                        // Calculate effective override rate based on type
-                                                        const overrideInputVal = Number(td.finalize_override_rate || 0);
-                                                        const overrideType = td.finalize_override_type || 'value';
-                                                        let effectiveOverrideRate = 0;
-                                                        if (overrideType === 'percentage') {
-                                                          effectiveOverrideRate = baseRate * overrideInputVal / 100;
-                                                        } else {
-                                                          effectiveOverrideRate = overrideInputVal;
-                                                        }
-                                                        
-                                                        const overrideTotal = effectiveOverrideRate * qty;
+                                                        if (!Array.isArray(cols)) cols = [];
+
+                                                        const row = computeItemRow(td, cols);
+
                                                         return (
                                                             <TableRow key={item.id} className="hover:bg-slate-50/50">
                                                                 <TableCell className="font-medium text-slate-500 border-r">{idx + 1}</TableCell>
                                                                 <TableCell className="font-bold text-slate-800 border-r text-[10px]">{productName}</TableCell>
-                                                                <TableCell className="text-slate-600 text-[10px] border-r max-w-[300px] leading-tight italic">{td.finalize_description || td.subcategory || currentStep11Items[0]?.description || "—"}</TableCell>
+                                                                <TableCell className="text-slate-600 text-[10px] border-r max-w-[300px] leading-tight italic">{td.finalize_description || td.subcategory || row.step11[0]?.description || "—"}</TableCell>
                                                                 <TableCell className="border-r text-center text-[10px] font-semibold">{td.finalize_unit || td.unit || "nos"}</TableCell>
-                                                                <TableCell className="text-center font-mono border-r text-[10px] font-bold">{qty}</TableCell>
-                                                                <TableCell className="text-right font-mono border-r text-[10px] text-slate-500">₹{baseRate.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                                                                <TableCell className="text-right font-bold text-slate-700 bg-slate-50/10 border-r text-[10px]">₹{sysTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                                                                <TableCell className={`text-right font-mono border-r text-[10px] ${effectiveOverrideRate > 0 ? "text-blue-600 font-bold bg-blue-50/30" : "text-slate-400"}`}>₹{effectiveOverrideRate.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                                                                <TableCell className={`text-right font-bold border-r text-[10px] ${overrideTotal > 0 ? "text-blue-700 bg-blue-50/30" : "text-slate-400"}`}>₹{overrideTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                                                                {(() => {
-                                                                    let cols = previewVersion?.column_config;
-                                                                    if (typeof cols === 'string') try { cols = JSON.parse(cols); } catch { cols = null; }
-                                                                    if (!cols || (Array.isArray(cols) && cols.length === 0)) {
-                                                                        if (previewItems.length > 0) {
-                                                                            let firstTd = previewItems[0].table_data;
-                                                                            if (typeof firstTd === 'string') try { firstTd = JSON.parse(firstTd); } catch { firstTd = {}; }
-                                                                            cols = firstTd.finalize_columns || [];
-                                                                        }
-                                                                    }
-                                                                    if (!Array.isArray(cols)) cols = [];
-                                                                    let runningTotal = overrideTotal > 0 ? overrideTotal : sysTotal;
-                                                                    let accumulator = 0;
-                                                                    const rowCalculatedValues: Record<string, number> = {};
-                                                                    const applyOp = (b: number, m: number, o: string) => {
-                                                                        if (o === "%") return b * (m / 100);
-                                                                        if (o === "*") return b * m;
-                                                                        if (o === "/") return m !== 0 ? b / m : 0;
-                                                                        return b + m;
-                                                                    };
-                                                                    return cols.map((col: any, i: number) => {
-                                                                        let cellVal = 0;
-                                                                        if (col.isTotal) {
-                                                                            runningTotal += accumulator;
-                                                                            accumulator = 0;
-                                                                            cellVal = runningTotal;
-                                                                        } else {
-                                                                            const multiplier = Number(col.percentageValue || 0);
-                                                                            const op = col.operator || "%";
-                                                                            let base = runningTotal;
-                                                                            if (col.baseSource === "Basic Total (₹)" || col.baseSource === "Total Value (₹)") base = sysTotal;
-                                                                            else if (col.baseSource === "Override Total") base = overrideTotal > 0 ? overrideTotal : sysTotal;
-                                                                            else if (col.baseSource && rowCalculatedValues[col.baseSource] !== undefined) base = rowCalculatedValues[col.baseSource];
-                                                                            cellVal = applyOp(base, multiplier, op);
-                                                                            accumulator += cellVal;
-                                                                        }
-                                                                        rowCalculatedValues[col.name] = cellVal;
-                                                                        return (
-                                                                            <TableCell key={i} className={`text-right border-r text-[10px] ${col.isTotal ? "font-black text-blue-800 bg-blue-50/40" : "text-slate-600 font-medium"}`}>
-                                                                                ₹{cellVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                                            </TableCell>
-                                                                        );
-                                                                    });
-                                                                })()}
+                                                                <TableCell className="text-center font-mono border-r text-[10px] font-bold">{row.displayQty}</TableCell>
+                                                                <TableCell className="text-right font-mono border-r text-[10px] text-slate-500">₹{row.itemRate.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                                <TableCell className="text-right font-bold text-slate-700 bg-slate-50/10 border-r text-[10px]">₹{row.baseTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                                <TableCell className={`text-right font-mono border-r text-[10px] ${row.effectiveOverrideRate > 0 ? "text-blue-600 font-bold bg-blue-50/30" : "text-slate-400"}`}>₹{row.effectiveOverrideRate.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                                <TableCell className={`text-right font-bold border-r text-[10px] ${row.overrideTotalVal !== row.baseTotalValue ? "text-blue-700 bg-blue-50/30" : "text-slate-400"}`}>₹{row.overrideTotalVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                                {row.colValues.map((cellVal: number, i: number) => (
+                                                                    <TableCell key={i} className={`text-right border-r text-[10px] ${cols[i]?.isTotal ? "font-black text-blue-800 bg-blue-50/40" : "text-slate-600 font-medium"}`}>
+                                                                        ₹{cellVal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                                    </TableCell>
+                                                                ))}
                                                             </TableRow>
                                                         );
                                                     })}
@@ -500,68 +604,7 @@ export default function BoqApprovals() {
                                                 <div className="flex justify-between items-end border-t border-slate-200 pt-2 mt-2">
                                                     <span className="text-[11px] font-black text-slate-500 uppercase">Grand Total Value</span>
                                                     <span className="text-2xl font-black text-blue-900 tracking-tighter">
-                                                        ₹{previewItems.reduce((acc: number, item: any) => {
-                                                            let td = item.table_data || {};
-                                                            if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
-                                                            let cols = previewVersion?.column_config;
-                                                            if (typeof cols === 'string') try { cols = JSON.parse(cols); } catch { cols = null; }
-                                                            if (!cols || (Array.isArray(cols) && cols.length === 0)) {
-                                                                if (previewItems.length > 0) {
-                                                                    let firstTd = previewItems[0].table_data;
-                                                                    if (typeof firstTd === 'string') try { firstTd = JSON.parse(firstTd); } catch { firstTd = {}; }
-                                                                    cols = firstTd.finalize_columns || [];
-                                                                }
-                                                            }
-                                                            if (!Array.isArray(cols)) cols = [];
-                                                            const qty = td.finalize_qty !== undefined && td.finalize_qty !== null ? Number(td.finalize_qty) : (td.targetRequiredQty || 0);
-                                                            let sysTotal = 0;
-                                                            if (td.materialLines) {
-                                                                const calc = computeBoq(basisFromTableData(td), linesFromTableData(td), qty);
-                                                                sysTotal = calc.grandTotal;
-                                                            } else {
-                                                                const currentStep11Items = Array.isArray(td.step11_items) ? td.step11_items : [];
-                                                                sysTotal = currentStep11Items.reduce((s: number, it: any) => s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
-                                                            }
-                                                            
-                                                            // Calculate effective override total based on type
-                                                            const overrideInputVal = Number(td.finalize_override_rate || 0);
-                                                            const overrideType = td.finalize_override_type || 'value';
-                                                            let overrideTotal = 0;
-                                                            if (overrideType === 'percentage') {
-                                                              overrideTotal = sysTotal * overrideInputVal / 100;
-                                                            } else {
-                                                              overrideTotal = overrideInputVal * qty;
-                                                            }
-                                                            
-                                                            let runningTotal = overrideTotal > 0 ? overrideTotal : sysTotal;
-                                                            let accumulator = 0;
-                                                            const rowCalculatedValues: Record<string, number> = {};
-                                                            const applyOp = (b: number, m: number, o: string) => {
-                                                                if (o === "%") return b * (m / 100);
-                                                                if (o === "*") return b * m;
-                                                                if (o === "/") return m !== 0 ? b / m : 0;
-                                                                return b + m;
-                                                            };
-                                                            cols.forEach((col: any) => {
-                                                                let cellVal = 0;
-                                                                if (col.isTotal) {
-                                                                    runningTotal += accumulator;
-                                                                    accumulator = 0;
-                                                                    cellVal = runningTotal;
-                                                                } else {
-                                                                    const multiplier = Number(col.percentageValue || 0);
-                                                                    const op = col.operator || "%";
-                                                                    let base = runningTotal;
-                                                                    if (col.baseSource === "Basic Total (₹)" || col.baseSource === "Total Value (₹)") base = sysTotal;
-                                                                    else if (col.baseSource === "Override Total") base = overrideTotal > 0 ? overrideTotal : sysTotal;
-                                                                    else if (col.baseSource && rowCalculatedValues[col.baseSource] !== undefined) base = rowCalculatedValues[col.baseSource];
-                                                                    cellVal = applyOp(base, multiplier, op);
-                                                                    accumulator += cellVal;
-                                                                }
-                                                                rowCalculatedValues[col.name] = cellVal;
-                                                            });
-                                                            return acc + runningTotal + accumulator;
-                                                        }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                        ₹{(parseFloat((previewVersion?.project_value as any) || "0")).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                                     </span>
                                                 </div>
                                             </div>
