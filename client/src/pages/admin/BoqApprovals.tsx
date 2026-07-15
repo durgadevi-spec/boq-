@@ -7,6 +7,7 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableFooter,
     TableHead,
     TableHeader,
     TableRow,
@@ -20,148 +21,227 @@ import { computeBoq, linesFromTableData, basisFromTableData } from "@/lib/boqCal
 
 // ─── Shared helpers (mirrored from FinalizeBoq.tsx) ────────────────────────
 const applyOperator = (base: number, mult: number, op: string) => {
-  if (op === "%") return base * (mult / 100);
-  if (op === "*") return base * mult;
-  if (op === "/") return mult !== 0 ? base / mult : 0;
-  return base + mult; // "+"
+    if (op === "%") return base * (mult / 100);
+    if (op === "*") return base * mult;
+    if (op === "/") return mult !== 0 ? base / mult : 0;
+    return base + mult; // "+"
 };
 
 type SrcCtx = {
-  totalVal: number; rate: number; qty: number;
-  overrideRate: number; overrideTotal: number;
-  rowCalc: Record<string, number>;
-  customVals: Record<string, string>;
+    totalVal: number; rate: number; qty: number;
+    overrideRate: number; overrideTotal: number;
+    rowCalc: Record<string, number>;
+    customVals: Record<string, string>;
 };
 
 const resolveSource = (src: string, ctx: SrcCtx): number => {
-  if (src === "Total Value (₹)") return ctx.totalVal;
-  if (src === "Rate / Unit") return ctx.rate;
-  if (src === "Qty") return ctx.qty;
-  if (src === "Override Rate") return ctx.overrideRate;
-  if (src === "Override Total") return ctx.overrideTotal;
-  if (ctx.rowCalc[src] !== undefined) return ctx.rowCalc[src];
-  return parseFloat(ctx.customVals[src] || "0") || 0;
+    if (src === "Total Value (₹)") return ctx.totalVal;
+    if (src === "Rate / Unit") return ctx.rate;
+    if (src === "Qty") return ctx.qty;
+    if (src === "Override Rate") return ctx.overrideRate;
+    if (src === "Override Total") return ctx.overrideTotal;
+    if (ctx.rowCalc[src] !== undefined) return ctx.rowCalc[src];
+    return parseFloat(ctx.customVals[src] || "0") || 0;
 };
 
 const getItemMetrics = (td: any) => {
-  const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
-  let itemTotal = 0, itemQty = 0;
-  if (td.targetRequiredQty !== undefined && td.targetRequiredQty !== null) {
-    if (td.materialLines) {
-      const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
-      const manualTotal = step11.filter((it: any) => it.manual).reduce((s: number, it: any) =>
-        s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
-      itemTotal = res.grandTotal + manualTotal;
+    const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
+    let itemTotal = 0, itemQty = 0;
+    if (td.targetRequiredQty !== undefined && td.targetRequiredQty !== null) {
+        if (td.materialLines) {
+            const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
+            const manualTotal = step11.filter((it: any) => it.manual).reduce((s: number, it: any) =>
+                s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+            itemTotal = res.grandTotal + manualTotal;
+        } else {
+            itemTotal = step11.reduce((s: number, it: any) =>
+                s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+        }
+        itemQty = td.targetRequiredQty;
     } else {
-      itemTotal = step11.reduce((s: number, it: any) =>
-        s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+        itemTotal = step11.reduce((s: number, it: any) =>
+            s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+        itemQty = step11[0]?.qty || 0;
     }
-    itemQty = td.targetRequiredQty;
-  } else {
-    itemTotal = step11.reduce((s: number, it: any) =>
-      s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
-    itemQty = step11[0]?.qty || 0;
-  }
-  let finalRate = itemQty > 0 ? itemTotal / itemQty : itemTotal;
+    let finalRate = itemQty > 0 ? itemTotal / itemQty : itemTotal;
 
-  if (td.is_lump_sum) {
-    itemQty = 1;
-    finalRate = itemTotal;
-  }
+    if (td.is_lump_sum) {
+        itemQty = 1;
+        finalRate = itemTotal;
+    }
 
-  if (td.use_standard_rate && td.materialLines) {
-    try {
-      const baseQty = Number(td.configBasis?.baseRequiredQty || 1);
-      const resBase = computeBoq({ ...td.configBasis, wastagePctDefault: 0 }, td.materialLines.map((l: any) => ({ ...l, applyWastage: false })), baseQty);
-      finalRate = resBase.grandTotal / baseQty;
-      itemTotal = finalRate * itemQty;
-    } catch { }
-  } else if (td.use_fixed_rate) {
-    finalRate = Number(td.fixed_rate || 0);
-    itemTotal = finalRate * itemQty;
-  }
-  return { itemTotal, itemQty, itemRate: finalRate, step11 };
+    if (td.use_standard_rate && td.materialLines) {
+        try {
+            const baseQty = Number(td.configBasis?.baseRequiredQty || 1);
+            const resBase = computeBoq({ ...td.configBasis, wastagePctDefault: 0 }, td.materialLines.map((l: any) => ({ ...l, applyWastage: false })), baseQty);
+            finalRate = resBase.grandTotal / baseQty;
+            itemTotal = finalRate * itemQty;
+        } catch { }
+    } else if (td.use_fixed_rate) {
+        finalRate = Number(td.fixed_rate || 0);
+        itemTotal = finalRate * itemQty;
+    }
+    return { itemTotal, itemQty, itemRate: finalRate, step11 };
 };
 
-/** Compute all per-item values matching FinalizeBoq logic exactly */
-const computeItemRow = (td: any, cols: any[]) => {
-  const { itemRate, itemQty, step11 } = getItemMetrics(td);
+/** Compute all per-item values matching FinalizeBoq logic exactly.
+ *  `unionCols` is the FULL set of columns across every item in the version (see
+ *  buildUnionCols below) — this must be the union, not just this item's own list,
+ *  because FinalizeBoq's `allCols` (and therefore column totals / grand total) is
+ *  built the same way: from every item's customColumns, not any single item's. */
+const computeItemRow = (td: any, unionCols: any[]) => {
+    const { itemRate, itemQty, step11 } = getItemMetrics(td);
 
-  // Use finalize_qty / finalize_unit overrides if present
-  const isLumpSum = td.is_lump_sum || (td.finalize_unit || td.unit || '').toLowerCase() === 'ls';
-  const displayQty = isLumpSum ? 1 : (
-    td.finalize_qty !== undefined && td.finalize_qty !== null
-      ? Number(td.finalize_qty)
-      : itemQty
-  );
+    // Use finalize_qty / finalize_unit overrides if present
+    const isLumpSum = td.is_lump_sum || (td.finalize_unit || td.unit || '').toLowerCase() === 'ls';
+    const displayQty = isLumpSum ? 1 : (
+        td.finalize_qty !== undefined && td.finalize_qty !== null
+            ? Number(td.finalize_qty)
+            : itemQty
+    );
 
-  const baseTotalValue = itemRate * displayQty;
+    const baseTotalValue = itemRate * displayQty;
 
-  // Override calculation — matches FinalizeBoq exactly
-  const overrideInputVal = Number(td.finalize_override_rate || 0);
-  const overrideType = td.finalize_override_type || 'value';
-  let effectiveOverrideRate = 0;
-  if (overrideType === 'percentage') {
-    effectiveOverrideRate = itemRate * overrideInputVal / 100;
-  } else {
-    effectiveOverrideRate = overrideInputVal;
-  }
-  const overrideMarkupTotal = effectiveOverrideRate * displayQty;
-  // % mode: adds markup on top of system total.  ₹ mode: replaces rate entirely.
-  const overrideTotalVal = overrideInputVal !== 0
-    ? (overrideType === 'percentage' ? (baseTotalValue + overrideMarkupTotal) : overrideMarkupTotal)
-    : baseTotalValue;
-
-  // Column calculations — matches FinalizeBoq calculatedColumnTotals logic
-  let currentItemRunningTotal = overrideTotalVal;
-  let accumulator = 0;
-  const rowCalculatedValues: Record<string, number> = {};
-
-  const colValues: number[] = [];
-  cols.forEach((col: any) => {
-    if (col.isTotal) {
-      currentItemRunningTotal += accumulator;
-      accumulator = 0;
-      rowCalculatedValues[col.name] = currentItemRunningTotal;
-      colValues.push(currentItemRunningTotal);
+    // Override calculation — matches FinalizeBoq exactly
+    const overrideInputVal = Number(td.finalize_override_rate || 0);
+    const overrideType = td.finalize_override_type || 'value';
+    let effectiveOverrideRate = 0;
+    if (overrideType === 'percentage') {
+        effectiveOverrideRate = itemRate * overrideInputVal / 100;
     } else {
-      let val = 0;
-      const baseSource = col.baseSource;
-      const operator = col.operator || "%";
-      const multiplierSource = col.multiplierSource || "manual";
-      const manualMultiplier = col.percentageValue || 0;
-
-      if (baseSource && baseSource !== "manual") {
-        const _ctx: SrcCtx = {
-          totalVal: baseTotalValue, rate: itemRate, qty: displayQty,
-          overrideRate: effectiveOverrideRate,
-          overrideTotal: overrideTotalVal,
-          rowCalc: rowCalculatedValues, customVals: {},
-        };
-        const baseVal = resolveSource(baseSource, _ctx);
-        const multiplierVal = multiplierSource === "manual" ? manualMultiplier : resolveSource(multiplierSource, _ctx);
-        val = applyOperator(baseVal, multiplierVal, operator);
-      } else {
-        const multiplier = Number(col.percentageValue || 0);
-        const op = col.operator || "%";
-        let base = currentItemRunningTotal;
-        if (col.baseSource === "Basic Total (₹)" || col.baseSource === "Total Value (₹)") base = baseTotalValue;
-        else if (col.baseSource === "Override Total") base = overrideTotalVal;
-        else if (col.baseSource && rowCalculatedValues[col.baseSource] !== undefined) base = rowCalculatedValues[col.baseSource];
-        val = applyOperator(base, multiplier, op);
-      }
-      rowCalculatedValues[col.name] = val;
-      accumulator += val;
-      colValues.push(val);
+        effectiveOverrideRate = overrideInputVal;
     }
-  });
+    const overrideMarkupTotal = effectiveOverrideRate * displayQty;
+    // % mode: adds markup on top of system total.  ₹ mode: replaces rate entirely.
+    const overrideTotalVal = overrideInputVal !== 0
+        ? (overrideType === 'percentage' ? (baseTotalValue + overrideMarkupTotal) : overrideMarkupTotal)
+        : baseTotalValue;
 
-  return {
-    itemRate, displayQty, baseTotalValue, effectiveOverrideRate,
-    overrideTotalVal, overrideMarkupTotal, overrideInputVal, overrideType,
-    colValues, rowCalculatedValues, step11,
-    finalRunningTotal: currentItemRunningTotal + accumulator,
-  };
+    // Manual (non-formula) custom-column values live in td.finalize_column_values,
+    // keyed by row index "0" then column name — this is exactly where FinalizeBoq's
+    // saveItemLayout() persists them (finalize_column_values: customColumnValues[...]),
+    // and exactly what FinalizeBoq's calculatedColumnTotals reads back for any column
+    // whose baseSource is empty/"manual". Previously this map was never read here, so
+    // every manual column (e.g. a hand-typed "Negotiation" amount) silently fell back
+    // to a bogus formula instead of the value the user actually typed in — throwing off
+    // that column's total AND every running "Total" column stacked on top of it.
+    const manualColumnValues: Record<string, string> = td.finalize_column_values?.[0] || {};
+
+    // Column calculations — matches FinalizeBoq calculatedColumnTotals logic exactly:
+    // iterate the UNION column list, but for each column resolve this item's OWN
+    // definition (baseSource/operator/multiplierSource/percentageValue) by name,
+    // falling back to the union column's definition if this item doesn't have one.
+    const itemOwnCols: any[] = Array.isArray(td.finalize_columns) ? td.finalize_columns : [];
+    let currentItemRunningTotal = overrideTotalVal;
+    let accumulator = 0;
+    const rowCalculatedValues: Record<string, number> = {};
+
+    const colValues: number[] = [];
+    unionCols.forEach((col: any) => {
+        const itemCol = itemOwnCols.find((c: any) => c.name === col.name) || col;
+        if (col.isTotal) {
+            currentItemRunningTotal += accumulator;
+            accumulator = 0;
+            rowCalculatedValues[col.name] = currentItemRunningTotal;
+            colValues.push(currentItemRunningTotal);
+        } else {
+            let val = 0;
+            const baseSource = itemCol.baseSource;
+            const operator = itemCol.operator || "%";
+            const multiplierSource = itemCol.multiplierSource || "manual";
+            const manualMultiplier = itemCol.percentageValue || 0;
+
+            if (baseSource && baseSource !== "manual") {
+                const _ctx: SrcCtx = {
+                    totalVal: baseTotalValue, rate: itemRate, qty: displayQty,
+                    overrideRate: effectiveOverrideRate,
+                    overrideTotal: overrideTotalVal,
+                    rowCalc: rowCalculatedValues, customVals: manualColumnValues,
+                };
+                const baseVal = resolveSource(baseSource, _ctx);
+                const multiplierVal = multiplierSource === "manual" ? manualMultiplier : resolveSource(multiplierSource, _ctx);
+                val = applyOperator(baseVal, multiplierVal, operator);
+            } else {
+                // Manual entry column — matches FinalizeBoq's "Manual entry column" branch
+                // exactly: read the raw value the user typed into the cell, don't derive it.
+                val = parseFloat(manualColumnValues[col.name] || "0") || 0;
+            }
+            rowCalculatedValues[col.name] = val;
+            accumulator += val;
+            colValues.push(val);
+        }
+    });
+
+    return {
+        itemRate, displayQty, baseTotalValue, effectiveOverrideRate,
+        overrideTotalVal, overrideMarkupTotal, overrideInputVal, overrideType,
+        colValues, rowCalculatedValues, step11,
+        finalRunningTotal: currentItemRunningTotal + accumulator,
+    };
+};
+
+/** Build the union of every item's `finalize_columns`, in first-seen order —
+ *  this is exactly how FinalizeBoq's `allCols` is built (from customColumns
+ *  across all boqItems), and it's the real, authoritative source of the column
+ *  list. The version-level `column_config` field is NOT read anywhere in
+ *  FinalizeBoq itself (only copied around server-side) and is unrelated to the
+ *  finalize columns, so it's deliberately not used here — trusting it was the
+ *  cause of totals not matching what FinalizeBoq actually showed. */
+const buildUnionCols = (items: any[]) => {
+    const cols: any[] = [];
+    items.forEach((item) => {
+        let td = item.table_data;
+        if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
+        const itemCols = Array.isArray(td?.finalize_columns) ? td.finalize_columns : [];
+        itemCols.forEach((col: any) => {
+            if (!cols.find((c) => c.name === col.name)) cols.push(col);
+        });
+    });
+    return cols;
+};
+
+/** Resolve the finalize columns + finalize_grand_total_column for a version,
+ *  exactly as FinalizeBoq computed/persisted them, given the raw items returned
+ *  from the API. */
+const resolveVersionColumns = (items: any[]) => {
+    const cols = buildUnionCols(items);
+    let grandTotalColumn = "Total Value (₹)";
+    for (const item of items) {
+        let td = item.table_data;
+        if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
+        if (td?.finalize_grand_total_column) { grandTotalColumn = td.finalize_grand_total_column; break; }
+    }
+    return { cols, grandTotalColumn };
+};
+
+/** Sum every item's computeItemRow() output — this reproduces, exactly, the numbers
+ *  FinalizeBoq showed (System Total, Override Total, every custom column, and whichever
+ *  column was selected as the Grand Total) at the moment the version was submitted. */
+const computeVersionTotals = (items: any[]) => {
+    const { cols, grandTotalColumn } = resolveVersionColumns(items);
+    let totalValueSum = 0;
+    let overrideTotalSum = 0;
+    const colTotals = cols.map(() => 0);
+
+    const rows = items.map((item) => {
+        let td = item.table_data || {};
+        if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
+        const row = computeItemRow(td, cols);
+        totalValueSum += row.baseTotalValue;
+        overrideTotalSum += row.overrideTotalVal;
+        row.colValues.forEach((v: number, i: number) => { colTotals[i] += v; });
+        return { item, td, row };
+    });
+
+    let grandTotal = totalValueSum;
+    if (grandTotalColumn === "Total Value (₹)") grandTotal = totalValueSum;
+    else if (grandTotalColumn === "Override Total") grandTotal = overrideTotalSum;
+    else {
+        const idx = cols.findIndex((c: any) => c.name === grandTotalColumn);
+        grandTotal = idx >= 0 ? colTotals[idx] : totalValueSum;
+    }
+
+    return { cols, grandTotalColumn, totalValueSum, overrideTotalSum, colTotals, grandTotal, rows };
 };
 
 type BOQApproval = {
@@ -186,6 +266,14 @@ export default function BoqApprovals() {
     const [previewVersion, setPreviewVersion] = useState<BOQApproval | null>(null);
     const [previewItems, setPreviewItems] = useState<any[]>([]);
     const [previewLoading, setPreviewLoading] = useState(false);
+    // Accurate, recomputed-from-source grand totals, keyed by approval/version id.
+    // The `project_value` column on the version row is a server-side snapshot that
+    // does NOT account for finalize-time overrides or custom columns, so it can go
+    // stale/wrong the moment someone uses an override rate or a custom column. We
+    // recompute the real total client-side from the same items + logic FinalizeBoq
+    // used, so what's shown here always matches exactly what was submitted.
+    const [computedTotals, setComputedTotals] = useState<Record<string, number>>({});
+    const [previewTotals, setPreviewTotals] = useState<ReturnType<typeof computeVersionTotals> | null>(null);
     const { toast } = useToast();
 
     const fetchApprovals = async () => {
@@ -199,6 +287,20 @@ export default function BoqApprovals() {
                     (a.type === 'boq' || a.is_boq_submission === true) && ['submitted', 'pending_approval', 'edit_requested'].includes(a.status)
                 );
                 setApprovals(list);
+                // Kick off background recomputation of the real grand total for every
+                // row shown, so the list's "Grand Total" column is trustworthy too.
+                list.forEach(async (a: any) => {
+                    try {
+                        const itemsRes = await apiFetch(`/api/boq-items/version/${a.id}`);
+                        if (itemsRes.ok) {
+                            const itemsData = await itemsRes.json();
+                            const totals = computeVersionTotals(itemsData.items || []);
+                            setComputedTotals(prev => ({ ...prev, [a.id]: totals.grandTotal }));
+                        }
+                    } catch {
+                        // Silently keep falling back to project_value for this row.
+                    }
+                });
             }
         } catch (err) {
             console.error("Failed to load BOQ approvals:", err);
@@ -278,12 +380,19 @@ export default function BoqApprovals() {
 
     const handleOpenPreview = async (approval: BOQApproval) => {
         setPreviewVersion(approval);
+        setPreviewItems([]);
+        setPreviewTotals(null);
         setPreviewLoading(true);
         try {
             const res = await apiFetch(`/api/boq-items/version/${approval.id}`);
             if (res.ok) {
                 const data = await res.json();
-                setPreviewItems(data.items || []);
+                const items = data.items || [];
+                setPreviewItems(items);
+                const totals = computeVersionTotals(items);
+                setPreviewTotals(totals);
+                // Keep the list-view total for this row in sync with what the preview shows.
+                setComputedTotals(prev => ({ ...prev, [approval.id]: totals.grandTotal }));
             }
         } catch (err) {
             toast({ title: "Error", description: "Failed to load BOQ details", variant: "destructive" });
@@ -381,14 +490,18 @@ export default function BoqApprovals() {
                                 <TableCell>{approval.project_client}</TableCell>
                                 <TableCell>V{approval.version_number}</TableCell>
                                 <TableCell className="text-right font-bold whitespace-nowrap">
-                                    {approval.project_value ? `₹${Number(approval.project_value).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}
+                                    {computedTotals[approval.id] !== undefined
+                                        ? `₹${computedTotals[approval.id].toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                                        : approval.project_value
+                                            ? <span className="text-slate-400">₹{Number(approval.project_value).toLocaleString(undefined, { minimumFractionDigits: 2 })} <Loader2 className="inline h-3 w-3 animate-spin ml-1" /></span>
+                                            : '—'}
                                 </TableCell>
                                 <TableCell>
                                     <Badge className={
                                         approval.status === 'approved' ? "bg-green-100 text-green-700" :
-                                        approval.status === 'rejected' ? "bg-red-100 text-red-700" :
-                                        approval.status === 'edit_requested' ? "bg-indigo-100 text-indigo-700" :
-                                        "bg-amber-100 text-amber-700"
+                                            approval.status === 'rejected' ? "bg-red-100 text-red-700" :
+                                                approval.status === 'edit_requested' ? "bg-indigo-100 text-indigo-700" :
+                                                    "bg-amber-100 text-amber-700"
                                     }>
                                         {approval.status.replace('_', ' ').toUpperCase()}
                                     </Badge>
@@ -426,7 +539,7 @@ export default function BoqApprovals() {
                                             </>
                                         )}
                                         {approval.status === 'approved' && (
-                                             <Button
+                                            <Button
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() => handleClear(approval.id)}
@@ -524,16 +637,7 @@ export default function BoqApprovals() {
                                                 <TableHeader className="bg-slate-50 sticky top-0 z-10">
                                                     <TableRow>
                                                         {(() => {
-                                                            let cols = previewVersion?.column_config;
-                                                            if (typeof cols === 'string') try { cols = JSON.parse(cols); } catch { cols = null; }
-                                                            if (!cols || (Array.isArray(cols) && cols.length === 0)) {
-                                                                if (previewItems.length > 0) {
-                                                                    let td = previewItems[0].table_data;
-                                                                    if (typeof td === 'string') try { td = JSON.parse(td); } catch { td = {}; }
-                                                                    cols = td.finalize_columns || [];
-                                                                }
-                                                            }
-                                                            if (!Array.isArray(cols)) cols = [];
+                                                            const cols = previewTotals?.cols || [];
                                                             return (
                                                                 <>
                                                                     <TableHead className="w-[50px] border-r">#</TableHead>
@@ -554,24 +658,9 @@ export default function BoqApprovals() {
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
-                                                    {previewItems.map((item, idx) => {
-                                                        let td = item.table_data || {};
-                                                        if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
+                                                    {(previewTotals?.rows || []).map(({ item, td, row }, idx) => {
                                                         const productName = td.product_name || item.estimator || "—";
-
-                                                        // Get columns
-                                                        let cols = previewVersion?.column_config;
-                                                        if (typeof cols === 'string') try { cols = JSON.parse(cols); } catch { cols = null; }
-                                                        if (!cols || (Array.isArray(cols) && cols.length === 0)) {
-                                                            if (previewItems.length > 0) {
-                                                                let firstTd = previewItems[0].table_data;
-                                                                if (typeof firstTd === 'string') try { firstTd = JSON.parse(firstTd); } catch { firstTd = {}; }
-                                                                cols = firstTd.finalize_columns || [];
-                                                            }
-                                                        }
-                                                        if (!Array.isArray(cols)) cols = [];
-
-                                                        const row = computeItemRow(td, cols);
+                                                        const cols = previewTotals?.cols || [];
 
                                                         return (
                                                             <TableRow key={item.id} className="hover:bg-slate-50/50">
@@ -593,6 +682,21 @@ export default function BoqApprovals() {
                                                         );
                                                     })}
                                                 </TableBody>
+                                                {previewTotals && (
+                                                    <TableFooter>
+                                                        <TableRow className="bg-slate-100 border-t-2 border-slate-300">
+                                                            <TableCell colSpan={6} className="text-right font-black text-[10px] uppercase border-r text-slate-600">Column Totals</TableCell>
+                                                            <TableCell className="text-right font-black text-[10px] border-r bg-slate-50">₹{previewTotals.totalValueSum.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                            <TableCell className="border-r bg-blue-50/30"></TableCell>
+                                                            <TableCell className="text-right font-black text-[10px] border-r bg-blue-50/30">₹{previewTotals.overrideTotalSum.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                            {previewTotals.colTotals.map((t: number, i: number) => (
+                                                                <TableCell key={i} className={`text-right font-black text-[10px] border-r ${previewTotals.cols[i]?.isTotal ? "text-blue-800 bg-blue-50/40" : "text-slate-700 bg-slate-50/50"}`}>
+                                                                    ₹{t.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                                </TableCell>
+                                                            ))}
+                                                        </TableRow>
+                                                    </TableFooter>
+                                                )}
                                             </Table>
                                         </div>
                                         <div className="mt-6 flex justify-end">
@@ -601,10 +705,14 @@ export default function BoqApprovals() {
                                                     <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Product Items</span>
                                                     <span className="font-bold text-slate-700">{previewItems.length}</span>
                                                 </div>
+                                                <div className="flex justify-between items-center mb-1 text-slate-400">
+                                                    <span className="text-[9px] uppercase font-bold tracking-wider">Grand Total Column</span>
+                                                    <span className="text-[10px] font-semibold">{previewTotals?.grandTotalColumn || "Total Value (₹)"}</span>
+                                                </div>
                                                 <div className="flex justify-between items-end border-t border-slate-200 pt-2 mt-2">
                                                     <span className="text-[11px] font-black text-slate-500 uppercase">Grand Total Value</span>
                                                     <span className="text-2xl font-black text-blue-900 tracking-tighter">
-                                                        ₹{(parseFloat((previewVersion?.project_value as any) || "0")).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                        ₹{(previewTotals?.grandTotal ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                                     </span>
                                                 </div>
                                             </div>
@@ -615,8 +723,8 @@ export default function BoqApprovals() {
                             <DialogFooter className="p-6 bg-slate-50 border-t flex items-center justify-between">
                                 <Button variant="outline" onClick={() => setPreviewVersion(null)}>Close Preview</Button>
                                 <div className="flex gap-3">
-                                    <Button 
-                                        variant="destructive" 
+                                    <Button
+                                        variant="destructive"
                                         className="px-8"
                                         onClick={() => {
                                             handleReject(previewVersion!.id, previewVersion?.status === 'edit_requested');
@@ -624,7 +732,7 @@ export default function BoqApprovals() {
                                     >
                                         Reject
                                     </Button>
-                                    <Button 
+                                    <Button
                                         className="bg-green-600 hover:bg-green-700 text-white px-8"
                                         onClick={() => {
                                             handleApprove(previewVersion!.id, previewVersion?.status === 'edit_requested');
