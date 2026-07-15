@@ -221,6 +221,7 @@ type BOQVersion = {
   project_client?: string;
   project_location?: string;
   is_disabled?: boolean;
+  is_boq_submission?: boolean;
 };
 
 type BOMItem = {
@@ -996,9 +997,18 @@ export default function FinalizeBoq() {
 
 
 
-  // BOM versions: only show approved versions for selection
+  // BOM versions: show approved versions for selection, plus versions that have
+  // been submitted for finance approval (so they don't disappear from this
+  // dropdown the moment they're submitted — mirrors filteredBoqVersions below).
   const filteredBomVersions = React.useMemo(() => {
-    return bomVersions.filter(v => v.status === "approved" && !v.is_disabled);
+    return bomVersions.filter(v =>
+      !v.is_disabled && (
+        v.status === "approved" ||
+        v.status === "submitted" ||
+        v.status === "pending_approval" ||
+        v.status === "edit_requested"
+      )
+    );
   }, [bomVersions]);
 
   // BOQ versions: show draft and approved so users can work on them
@@ -1930,9 +1940,33 @@ export default function FinalizeBoq() {
     }
   }, [selectedBomVersionId, selectedBoqVersionId]);
 
-  // Sync categoryOrder state whenever availableCategories changes
+  // Sync categoryOrder state whenever availableCategories changes.
+  // NOTE: availableCategories is recomputed (new array reference) on every
+  // boqItems mutation (e.g. saving an override rate, toggling ₹/%), even when
+  // the actual set of categories hasn't changed. Previously this effect did
+  // setCategoryOrder(availableCategories) unconditionally, which clobbered any
+  // in-progress manual category reorder (drag or arrow buttons) back to the
+  // last-saved order. Now we only reset when categories were actually added
+  // or removed, and in that case we preserve the existing order for
+  // categories that are still present and just append/remove as needed.
   useEffect(() => {
-    setCategoryOrder(availableCategories);
+    setCategoryOrder(prev => {
+      const nextSet = new Set(availableCategories);
+      const sameSet =
+        prev.length === availableCategories.length &&
+        prev.every(c => nextSet.has(c));
+      if (sameSet) {
+        // No actual category change — keep current (possibly user-reordered) list as-is.
+        return prev;
+      }
+      // Categories were added or removed: keep current order for categories
+      // still present, then append any new categories (in availableCategories order).
+      const merged = prev.filter(c => nextSet.has(c));
+      availableCategories.forEach(c => {
+        if (!merged.includes(c)) merged.push(c);
+      });
+      return merged;
+    });
   }, [availableCategories]);
 
   useEffect(() => {
@@ -2822,6 +2856,19 @@ export default function FinalizeBoq() {
           body: JSON.stringify({ value: true })
         });
         setBomFinalizeLocked(true);
+
+        // Also mark the version itself as submitted (mirrors the BOQ branch below).
+        // Without this, the BOM approval never sets status/is_boq_submission, so it
+        // fails the BOQ Approvals page's filter and silently never appears there.
+        await apiFetch(`/api/boq-versions/${activeVersionId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: "submitted",
+            is_locked: true,
+            is_boq_submission: true
+          }),
+        });
       } else {
         await apiFetch(`/api/boq-versions/${activeVersionId}`, {
           method: "PUT",
@@ -3081,6 +3128,11 @@ export default function FinalizeBoq() {
   };
 
   const handleDownloadExcel = () => {
+    if (isFinanceTeam && !(activeVersion?.is_boq_submission === true && activeVersion?.status === "approved")) {
+      toast({ title: "Not Approved", description: "You cannot download the Excel until it has been submitted and approved.", variant: "destructive" });
+      return;
+    }
+
     if (!selectedProjectId || filteredBoqItems.length === 0) {
       toast({ title: "Info", description: `No ${activeVersion?.type === 'boq' ? 'BOQ' : 'BOM'} items to download`, variant: "default" });
       return;
@@ -3394,8 +3446,8 @@ export default function FinalizeBoq() {
   };
 
   const handleDownloadPdfOpenDialog = () => {
-    if (isFinanceTeam && activeVersion?.status !== "approved") {
-      toast({ title: "Not Approved", description: "You cannot download the PDF until it is approved.", variant: "destructive" });
+    if (isFinanceTeam && !(activeVersion?.is_boq_submission === true && activeVersion?.status === "approved")) {
+      toast({ title: "Not Approved", description: "You cannot download the PDF until it has been submitted and approved.", variant: "destructive" });
       return;
     }
 
@@ -6490,14 +6542,14 @@ export default function FinalizeBoq() {
                   <Button
                     onClick={handleDownloadExcel}
                     variant="outline"
-                    disabled={boqItems.length === 0 || (isFinanceTeam && activeVersion?.status !== 'approved')}
+                    disabled={boqItems.length === 0 || (isFinanceTeam && !(activeVersion?.is_boq_submission === true && activeVersion?.status === 'approved'))}
                   >
                     Download as Excel
                   </Button>
                   <Button
                     onClick={handleDownloadPdfOpenDialog}
                     variant="outline"
-                    disabled={boqItems.length === 0 || (isFinanceTeam && activeVersion?.status !== 'approved')}
+                    disabled={boqItems.length === 0 || (isFinanceTeam && !(activeVersion?.is_boq_submission === true && activeVersion?.status === 'approved'))}
                   >
                     Download as PDF
                   </Button>

@@ -5538,7 +5538,7 @@ export async function registerRoutes(
         // Ensure is_disabled column exists
 
         const { type, excludeApproved } = req.query;
-        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, is_disabled, last_template_snapshot, created_at, updated_at, category_order 
+        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, is_disabled, is_boq_submission, last_template_snapshot, created_at, updated_at, category_order 
                  FROM boq_versions 
                  WHERE project_id = $1`;
         const params: any[] = [projectId];
