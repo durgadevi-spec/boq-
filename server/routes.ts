@@ -6344,7 +6344,14 @@ export async function registerRoutes(
     async (req: Request, res: Response) => {
       try {
         const { versionId } = req.params;
-        const { status, column_config, is_locked, type: newType, is_boq_submission, is_disabled } = req.body;
+        const { status, column_config, is_locked, type: newType, is_boq_submission, is_disabled, project_value } = req.body;
+
+        if (project_value !== undefined) {
+          await query(
+            `UPDATE boq_versions SET project_value = $1, updated_at = NOW() WHERE id = $2`,
+            [project_value.toString(), versionId]
+          );
+        }
 
         if (is_disabled !== undefined) {
           await query(

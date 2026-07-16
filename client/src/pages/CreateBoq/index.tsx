@@ -2070,41 +2070,52 @@ export default function CreateBom() {
   };
 
 
-  const handleDeleteRow = async (boqItemId: string, tableData: any, itemIdx: number, displayItem?: any) => {
-    if (isSaving) return;
-    setIsSaving(true);
-    try {
+  const handleDeleteRow = async (boqItemId: string, _staleTableData: any, itemIdx: number, displayItem?: any) => {
+    let finalNewTd: any = null;
+
+    setBoqItems(prev => {
+      const existingItem = prev.find(i => i.id === boqItemId);
+      if (!existingItem) return prev;
+
+      const currentTableData = parseTableData(existingItem.table_data);
+
       let computedLen = 0;
-      if (tableData?.materialLines && tableData.targetRequiredQty !== undefined) {
+      if (currentTableData?.materialLines && currentTableData.targetRequiredQty !== undefined) {
         try {
           const r = computeBoq(
-            tableData.configBasis || { requiredUnitType: "Sqft", baseRequiredQty: 1, wastagePctDefault: 0 },
-            tableData.materialLines || [],
-            tableData.targetRequiredQty || 1
+            currentTableData.configBasis || { requiredUnitType: "Sqft", baseRequiredQty: 1, wastagePctDefault: 0 },
+            currentTableData.materialLines || [],
+            currentTableData.targetRequiredQty || 1
           );
           computedLen = Array.isArray(r.computed) ? r.computed.length : 0;
         } catch {
-          computedLen = Array.isArray(tableData.materialLines) ? tableData.materialLines.length : 0;
+          computedLen = Array.isArray(currentTableData.materialLines) ? currentTableData.materialLines.length : 0;
         }
       }
-      let newTd = { ...tableData };
+      
+      let newTd = { ...currentTableData };
       if (itemIdx < computedLen) {
-        const ml = [...(tableData.materialLines || [])];
+        const ml = [...(currentTableData.materialLines || [])];
         ml.splice(itemIdx, 1);
-        newTd = { ...tableData, materialLines: ml };
+        newTd = { ...currentTableData, materialLines: ml };
       } else {
         const s11Idx = displayItem?._s11Idx ?? (itemIdx - computedLen);
-        const s11 = [...(tableData.step11_items || [])];
+        const s11 = [...(currentTableData.step11_items || [])];
         if (s11Idx >= 0 && s11Idx < s11.length) s11.splice(s11Idx, 1);
-        newTd = { ...tableData, step11_items: s11 };
+        newTd = { ...currentTableData, step11_items: s11 };
       }
-      setBoqItems(prev => prev.map(i => i.id === boqItemId ? { ...i, table_data: newTd } : i));
-      toast({ title: "Item Deleted" });
-      await updateBoqItem(boqItemId, newTd);
+
+      finalNewTd = newTd;
+      return prev.map(i => i.id === boqItemId ? { ...i, table_data: newTd } : i);
+    });
+
+    if (!finalNewTd) return;
+
+    toast({ title: "Item Deleted" });
+    try {
+      await updateBoqItem(boqItemId, finalNewTd);
     } catch {
       toast({ title: "Error", description: "Failed to delete item", variant: "destructive" });
-    } finally {
-      setIsSaving(false);
     }
   };
 

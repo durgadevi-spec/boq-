@@ -239,15 +239,40 @@ export const BoqItemCard = React.memo(function BoqItemCard({ boqItem, boqIdx, is
     });
   }
 
-  // Sync localItems when displayLines change from outside (add/delete/save)
-  useEffect(() => {
-    setLocalItems(displayLines);
-    setReorderInit(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step11Items.length, isEngineBased, boqItem.id, tableData.materialLines?.length, boqItem.table_data, calculationTarget, editedFields]);
+  // Sync localItems immediately during render if dependencies change (avoids visual lag)
+  const syncRef = useRef({
+    step11Length: -1,
+    materialLength: -1,
+    tableData: null as any,
+    calculationTarget: -1,
+    editedFields: null as any
+  });
 
-  // use localItems for rendering always (gives immediate reorder feedback)
-  const renderLines = (reorderInit ? localItems : displayLines);
+  let shouldSync = false;
+  if (
+    syncRef.current.step11Length !== step11Items.length ||
+    syncRef.current.materialLength !== tableData.materialLines?.length ||
+    syncRef.current.tableData !== boqItem.table_data ||
+    syncRef.current.calculationTarget !== calculationTarget ||
+    syncRef.current.editedFields !== editedFields
+  ) {
+    shouldSync = true;
+    syncRef.current = {
+      step11Length: step11Items.length,
+      materialLength: tableData.materialLines?.length,
+      tableData: boqItem.table_data,
+      calculationTarget,
+      editedFields
+    };
+  }
+
+  if (shouldSync) {
+    setLocalItems(displayLines);
+    if (!reorderInit) setReorderInit(true);
+  }
+
+  // Use updated displayLines directly if we just synced, otherwise use localItems
+  const renderLines = shouldSync ? displayLines : (reorderInit ? localItems : displayLines);
 
   const handleRowReorder = async (newOrder: any[]) => {
     setLocalItems(newOrder);
