@@ -518,9 +518,10 @@ const DraggableHeaderCol = ({
                 <div className="relative flex items-center shrink-0">
                   <input
                     type="number"
-                    className="w-8 bg-white text-[8px] font-bold text-gray-700 px-0.5 rounded border border-purple-200 h-3.5 text-right"
+                    className="w-8 focus:w-16 bg-white text-[8px] focus:text-[10px] font-bold text-gray-700 px-0.5 rounded border border-purple-200 focus:border-2 focus:border-purple-500 h-3.5 focus:h-5 text-right transition-all duration-150 ease-out focus:relative focus:z-30 focus:shadow-md outline-none"
                     value={globalColSettings[col.name]?.percentageValue || 0}
                     onChange={(e) => handleGlobalCalculation(col.name, globalColSettings[col.name]?.baseValue || 0, parseFloat(e.target.value) || 0, globalColSettings[col.name]?.baseSource || ((col as any).isPercentage ? "Total Value (₹)" : "manual"), globalColSettings[col.name]?.operator || "%", "manual")}
+                    onWheel={(e) => e.currentTarget.blur()}
                   />
                 </div>
               ) : <div className="w-8 bg-gray-100 rounded border border-gray-200 h-3.5 shrink-0" />}
@@ -3023,6 +3024,10 @@ export default function FinalizeBoq() {
   };
 
   const handleApplyTemplate = async (templateId: string) => {
+    if (isVersionSubmitted) {
+      toast({ title: "Version Locked", description: "This version is locked/submitted. Templates can't be applied to a locked version.", variant: "destructive" });
+      return;
+    }
     const template = templates.find(t => t.id === templateId);
     if (!template) return;
 
@@ -4326,7 +4331,12 @@ export default function FinalizeBoq() {
 
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="bg-white border-slate-200 font-bold h-full px-4 flex items-center gap-2 text-[11px] shadow-sm">
+                    <Button
+                      variant="outline"
+                      disabled={isVersionSubmitted}
+                      title={isVersionSubmitted ? "This version is locked/submitted — templates can't be applied" : undefined}
+                      className="bg-white border-slate-200 font-bold h-full px-4 flex items-center gap-2 text-[11px] shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                       <LayoutTemplate className="h-4 w-4 text-blue-600" />
                       <span className="max-w-[150px] truncate" title={selectedTemplateId ? templates.find(t => t.id === selectedTemplateId)?.name : (activeVersion as any)?.last_template_snapshot?.templateName ? `Applied: ${(activeVersion as any)?.last_template_snapshot?.templateName}` : "Apply Template"}>
                         {selectedTemplateId
@@ -5429,6 +5439,7 @@ export default function FinalizeBoq() {
                                 type="number"
                                 value={globalOverrideValue}
                                 disabled={isVersionSubmitted}
+                                onWheel={(e) => e.currentTarget.blur()}
                                 onChange={(e) => {
                                   const newVal = e.target.value;
                                   setGlobalOverrideValue(newVal);
@@ -5757,6 +5768,7 @@ export default function FinalizeBoq() {
                                   type="number"
                                   value={tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] ?? (tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0)))}
                                   disabled={isVersionSubmitted || tableData.is_lump_sum || (productUnits[boqItem.id]?.toLowerCase() === 'ls')}
+                                  onWheel={(e) => e.currentTarget.blur()}
                                   onChange={e => {
                                     const newQty = e.target.value;
                                     const isLS = productUnits[boqItem.id]?.toLowerCase() === 'ls';
@@ -5764,7 +5776,7 @@ export default function FinalizeBoq() {
                                     setProductQuantities(prev => ({ ...prev, [boqItem.id]: newQty }));
                                   }}
                                   onBlur={async () => { await saveItemLayout(boqItem.id, undefined, undefined, undefined, productQuantities[boqItem.id]); }}
-                                  className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none ${(tableData.is_lump_sum || (productUnits[boqItem.id]?.toLowerCase() === 'ls')) ? 'bg-transparent text-gray-500' : 'bg-blue-100/50'} text-center font-semibold h-7 ${getIsModified(boqItem.id, "qty", productQuantities[boqItem.id] ?? (tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0))) ? "text-blue-600 border-b border-blue-400" : ""}`}
+                                  className={`w-full border border-transparent focus:border-2 focus:border-blue-500 rounded p-0.5 text-[10px] focus:text-[12px] focus:ring-1 ring-blue-300 outline-none transition-all duration-150 ease-out focus:relative focus:z-30 focus:shadow-md ${(tableData.is_lump_sum || (productUnits[boqItem.id]?.toLowerCase() === 'ls')) ? 'bg-transparent text-gray-500' : 'bg-blue-100/50'} focus:bg-white text-center font-semibold h-7 focus:h-8 ${getIsModified(boqItem.id, "qty", productQuantities[boqItem.id] ?? (tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0))) ? "text-blue-600 border-b border-blue-400" : ""}`}
                                   placeholder="Qty"
                                 />
                               </td>
@@ -5790,6 +5802,7 @@ export default function FinalizeBoq() {
                                     type="number"
                                     value={overrideRates[boqItem.id] ?? globalOverrideValue}
                                     disabled={isVersionSubmitted}
+                                    onWheel={(e) => e.currentTarget.blur()}
                                     onChange={e => {
                                       setOverrideRates(prev => ({ ...prev, [boqItem.id]: e.target.value }));
                                       setOverrideTypes(prev => ({ ...prev, [boqItem.id]: globalOverrideType }));
@@ -5800,7 +5813,7 @@ export default function FinalizeBoq() {
                                       setOverrideTypes(prev => ({ ...prev, [boqItem.id]: globalOverrideType }));
                                       await saveItemLayout(boqItem.id, undefined, undefined, undefined, undefined, val === "" ? undefined : val, undefined, undefined, globalOverrideType);
                                     }}
-                                    className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-gray-300 outline-none bg-gray-50 text-center font-semibold h-6 ${getIsModified(boqItem.id, "rate", overrideRates[boqItem.id] ?? "") ? "text-blue-600 font-bold" : ""}`}
+                                    className={`w-full border border-transparent focus:border-2 focus:border-blue-500 rounded p-0.5 text-[10px] focus:text-[12px] focus:ring-1 ring-gray-300 outline-none bg-gray-50 focus:bg-white text-center font-semibold h-6 focus:h-7 transition-all duration-150 ease-out focus:relative focus:z-30 focus:shadow-md ${getIsModified(boqItem.id, "rate", overrideRates[boqItem.id] ?? "") ? "text-blue-600 font-bold" : ""}`}
                                     placeholder="0.00"
                                   />
                                   {globalOverrideType === "percentage" && (
@@ -6009,9 +6022,10 @@ export default function FinalizeBoq() {
                                             {((itemCol as any).multiplierSource || "manual") === "manual" && (
                                               <input
                                                 type="number"
-                                                className="w-16 h-6 bg-white border border-purple-400 rounded-md px-1.5 text-[11px] font-semibold text-purple-800 outline-none text-right shadow-sm focus:ring-1 ring-purple-600/30"
+                                                className="w-16 focus:w-20 h-6 focus:h-7 bg-white border border-purple-400 focus:border-2 focus:border-purple-600 rounded-md px-1.5 text-[11px] font-semibold text-purple-800 outline-none text-right shadow-sm focus:ring-1 ring-purple-600/30 transition-all duration-150 ease-out focus:relative focus:z-30"
                                                 value={itemMultiplier}
                                                 disabled={isVersionSubmitted}
+                                                onWheel={(e) => e.currentTarget.blur()}
                                                 onChange={(e) => {
                                                   const newVal = parseFloat(e.target.value) || 0;
                                                   handleItemCalculation(boqItem.id, col.name, newVal, itemOp, (itemCol as any).multiplierSource || "manual", (itemCol as any).baseSource || "Total Value (₹)");
@@ -6096,6 +6110,7 @@ export default function FinalizeBoq() {
                                             type="number"
                                             disabled={isVersionSubmitted || isCalculated}
                                             value={displayVal}
+                                            onWheel={(e) => e.currentTarget.blur()}
                                             onChange={e => setCustomColumnValues(prev => ({
                                               ...prev,
                                               [boqItem.id]: {
@@ -6104,7 +6119,7 @@ export default function FinalizeBoq() {
                                               }
                                             }))}
                                             onBlur={() => saveItemLayout(boqItem.id)}
-                                            className={`w-full h-7 border-transparent rounded px-1 py-0.5 text-[11px] outline-none bg-transparent text-right font-bold transition-colors ${historyUsedFields[boqItem.id]?.[col.name] ? 'text-blue-700' : 'text-gray-800'
+                                            className={`w-full h-7 focus:h-8 border border-transparent focus:border-2 focus:border-blue-500 rounded px-1 py-0.5 text-[11px] focus:text-[13px] outline-none bg-transparent focus:bg-white text-right font-bold transition-all duration-150 ease-out focus:relative focus:z-30 focus:shadow-md ${historyUsedFields[boqItem.id]?.[col.name] ? 'text-blue-700' : 'text-gray-800'
                                               }`}
                                             placeholder="0.00"
                                           />

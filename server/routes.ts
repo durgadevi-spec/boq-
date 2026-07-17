@@ -5617,18 +5617,20 @@ export async function registerRoutes(
         // Also copy column_config and category_order from previous version if expanding from one
         let initialColumnConfig = null;
         let initialCategoryOrder = null;
+        let initialTemplateSnapshot = null;
         if (copy_from_version) {
-          const prevVer = await query("SELECT column_config, category_order FROM boq_versions WHERE id = $1", [copy_from_version]);
+          const prevVer = await query("SELECT column_config, category_order, last_template_snapshot FROM boq_versions WHERE id = $1", [copy_from_version]);
           if (prevVer.rows.length > 0) {
             initialColumnConfig = prevVer.rows[0].column_config;
             initialCategoryOrder = prevVer.rows[0].category_order;
+            initialTemplateSnapshot = prevVer.rows[0].last_template_snapshot;
           }
         }
 
         await query(
-          `INSERT INTO boq_versions (id, project_id, project_name, project_client, project_location, project_client_address, project_gst_no, project_value, version_number, status, type, column_config, category_order, is_locked, source_version_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE, $14, NOW(), NOW())`,
-          [versionId, project_id, projectName, projectClient, projectLocation, projectClientAddress, projectGstNo, projectVal, nextVersion, "draft", type, initialColumnConfig, initialCategoryOrder ? JSON.stringify(initialCategoryOrder) : null, copy_from_version || null],
+          `INSERT INTO boq_versions (id, project_id, project_name, project_client, project_location, project_client_address, project_gst_no, project_value, version_number, status, type, column_config, category_order, last_template_snapshot, is_locked, source_version_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, FALSE, $15, NOW(), NOW())`,
+          [versionId, project_id, projectName, projectClient, projectLocation, projectClientAddress, projectGstNo, projectVal, nextVersion, "draft", type, initialColumnConfig, initialCategoryOrder ? JSON.stringify(initialCategoryOrder) : null, initialTemplateSnapshot ? (typeof initialTemplateSnapshot === 'string' ? initialTemplateSnapshot : JSON.stringify(initialTemplateSnapshot)) : null, copy_from_version || null],
         );
 
 
