@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { UserCog, Save, Loader2, ChevronRight, Building2, Search } from "lucide-react";
+import { UserCog, Save, Loader2, ChevronRight, Building2, Search, Maximize2, Minimize2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -39,6 +39,7 @@ const SUB_KEYS = new Set([
   "create_product_product",
   "manage_product_work",
   "manage_product_approval",
+  "manage_product_edit_locked",
 ]);
 
 const SUB_SUB_KEYS = new Set([
@@ -62,6 +63,8 @@ export function PermissionDialog({ user, open, onClose, onSaved }: PermissionDia
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("modules");
+  const [moduleSearch, setModuleSearch] = useState("");
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     if (!open || !user) return;
@@ -151,26 +154,57 @@ export function PermissionDialog({ user, open, onClose, onSaved }: PermissionDia
     p.client?.toLowerCase().includes(projectSearch.toLowerCase())
   );
 
+  // Filter module groups by search term (matches module label or section name)
+  const filteredGroups = PERMISSION_GROUPS.map((group) => {
+    const term = moduleSearch.trim().toLowerCase();
+    if (!term) return group;
+    const sectionMatches = group.section.toLowerCase().includes(term);
+    if (sectionMatches) return group;
+    const keys = group.keys.filter((key) => (labelMap[key] || key).toLowerCase().includes(term));
+    return { ...group, keys };
+  }).filter((group) => group.keys.length > 0);
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-6 overflow-hidden">
-        <DialogHeader className="mb-4">
-          <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-            <UserCog className="h-6 w-6 text-primary" />
-            Manage User Access
-          </DialogTitle>
-          {user && (
-            <div className="flex items-center gap-3 mt-2">
-              <span className="text-base font-semibold text-foreground">{user.username}</span>
-              <Badge variant="secondary" className="capitalize px-3 py-0.5">{user.role}</Badge>
+      <DialogContent
+        className={`flex flex-col gap-2 p-4 overflow-hidden transition-all duration-200 ${isExpanded
+          ? "max-w-[96vw] w-[96vw] h-[95vh] max-h-[95vh] sm:max-w-[96vw]"
+          : "max-w-4xl w-full h-[85vh] max-h-[85vh]"
+          }`}
+      >
+        <DialogHeader className="mb-0 shrink-0">
+          <div className="flex items-center justify-between gap-4 pr-8">
+            <div className="flex items-center gap-3 min-w-0">
+              <DialogTitle className="flex items-center gap-2 text-base font-bold shrink-0">
+                <UserCog className="h-4.5 w-4.5 text-primary" />
+                Manage User Access
+              </DialogTitle>
+              {user && (
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-muted-foreground shrink-0">·</span>
+                  <span className="text-sm font-semibold text-foreground truncate">{user.username}</span>
+                  <Badge variant="secondary" className="capitalize px-2 py-0 text-[10px] shrink-0">{user.role}</Badge>
+                </div>
+              )}
             </div>
-          )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsExpanded((v) => !v)}
+              className="h-7 text-xs font-bold gap-1.5 shrink-0"
+              title={isExpanded ? "Collapse view" : "Expand to full page"}
+            >
+              {isExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {isExpanded ? "Collapse" : "Full Page"}
+            </Button>
+          </div>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="modules" className="text-sm font-semibold">Sidebar Modules</TabsTrigger>
-            <TabsTrigger value="projects" className="text-sm font-semibold">Project Access</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <TabsList className="grid w-full grid-cols-2 mb-1.5 h-8 shrink-0">
+            <TabsTrigger value="modules" className="text-xs font-semibold">Sidebar Modules</TabsTrigger>
+            <TabsTrigger value="projects" className="text-xs font-semibold">Project Access</TabsTrigger>
           </TabsList>
 
           {loading ? (
@@ -180,100 +214,117 @@ export function PermissionDialog({ user, open, onClose, onSaved }: PermissionDia
             </div>
           ) : (
             <>
-              <TabsContent value="modules" className="flex-1 flex flex-col overflow-hidden mt-0 animate-in fade-in slide-in-from-left-4 duration-300">
-                <div className="flex items-center justify-between gap-4 mb-4">
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={selectAll} className="h-8 text-xs font-bold border-primary/20 hover:bg-primary/5">SELECT ALL</Button>
-                    <Button variant="outline" size="sm" onClick={clearAll} className="h-8 text-xs font-bold border-destructive/20 hover:bg-destructive/5 text-destructive hover:text-destructive">CLEAR ALL</Button>
+              <TabsContent value="modules" className="flex-1 flex flex-col overflow-hidden mt-0 animate-in fade-in slide-in-from-left-4 duration-300 min-h-0">
+                <div className="mb-1.5 shrink-0 flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="relative group flex-1 min-w-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                    <Input
+                      placeholder="Search modules (e.g. Manage Product, Approve, Categories)..."
+                      value={moduleSearch}
+                      onChange={(e) => setModuleSearch(e.target.value)}
+                      className="pl-10 h-8 text-sm bg-muted/20 border-border focus-visible:ring-primary/20"
+                    />
                   </div>
-                  <Badge variant="outline" className="h-8 px-3 font-mono text-[10px] tracking-tight bg-muted/30">
-                    {selected.size} / {ALL_SIDEBAR_MODULES.length} MODULES
-                  </Badge>
+                  <div className="flex items-center justify-between gap-2 shrink-0">
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={selectAll} className="h-8 text-xs font-bold border-primary/20 hover:bg-primary/5 px-2.5">SELECT ALL</Button>
+                      <Button variant="outline" size="sm" onClick={clearAll} className="h-8 text-xs font-bold border-destructive/20 hover:bg-destructive/5 text-destructive hover:text-destructive px-2.5">CLEAR ALL</Button>
+                    </div>
+                    <Badge variant="outline" className="h-8 px-2.5 font-mono text-[10px] tracking-tight bg-muted/30 whitespace-nowrap">
+                      {selected.size} / {ALL_SIDEBAR_MODULES.length}
+                    </Badge>
+                  </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto pr-2 space-y-6 pb-4 custom-scrollbar">
-                  {PERMISSION_GROUPS.map((group) => (
-                    <div key={group.section} className="group/section">
-                      <div className="flex items-center gap-3 mb-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10">
-                        <span className="text-[11px] font-black uppercase tracking-[0.15em] text-primary/70">
-                          {group.section}
-                        </span>
-                        <div className="flex-1 h-[1px] bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-1.5 pl-1">
-                        {group.keys.map((key) => {
-                          const isSub = SUB_KEYS.has(key);
-                          const isSubSub = SUB_SUB_KEYS.has(key);
-                          const label = labelMap[key] || key;
-                          const isChecked = selected.has(key);
-
-                          return (
-                            <label
-                              key={key}
-                              className={`
-                                group relative flex items-start gap-4 rounded-xl p-3 cursor-pointer transition-all duration-200 border
-                                ${isChecked ? "bg-primary/5 border-primary/20 shadow-sm" : "bg-card hover:bg-muted/50 border-transparent hover:border-border"}
-                                ${isSubSub ? "ml-10 py-2.5 opacity-90 scale-[0.98]" : isSub ? "ml-5 py-2.5" : ""}
-                              `}
-                            >
-                              <div className="flex items-center h-full pt-0.5">
-                                <Checkbox
-                                  checked={isChecked}
-                                  onCheckedChange={() => toggle(key)}
-                                  className={`h-4.5 w-4.5 transition-transform duration-200 ${isChecked ? "scale-110" : ""}`}
-                                />
-                              </div>
-                              <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                                <span className={`text-sm font-bold tracking-tight transition-colors ${isChecked ? "text-primary" : "text-foreground"}`}>
-                                  {isSubSub || isSub ? (
-                                    <span className="flex items-center gap-1.5">
-                                      {label.split("→")[1]?.trim() || label}
-                                    </span>
-                                  ) : label}
-                                </span>
-                                {(isSub || isSubSub) && (
-                                  <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide">
-                                    {label.split("→")[0]?.trim()} Extension
-                                  </span>
-                                )}
-                              </div>
-                              {isChecked && (
-                                <div className="absolute top-2 right-2 text-[10px] font-bold text-primary/40 pointer-events-none">ACTIVE</div>
-                              )}
-                            </label>
-                          );
-                        })}
-                      </div>
+                <div className="flex-1 overflow-y-auto pr-2 space-y-4 pb-4 custom-scrollbar min-h-0">
+                  {filteredGroups.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 opacity-60">
+                      <Search className="h-12 w-12 text-muted-foreground mb-3 stroke-[1.5]" />
+                      <p className="text-sm font-medium">No matching modules found</p>
                     </div>
-                  ))}
+                  ) : (
+                    filteredGroups.map((group) => (
+                      <div key={group.section} className="group/section">
+                        <div className="flex items-center gap-3 mb-2 sticky top-0 bg-background/95 backdrop-blur-sm py-0.5 z-10">
+                          <span className="text-[11px] font-black uppercase tracking-[0.15em] text-primary/70">
+                            {group.section}
+                          </span>
+                          <div className="flex-1 h-[1px] bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-1 pl-1">
+                          {group.keys.map((key) => {
+                            const isSub = SUB_KEYS.has(key);
+                            const isSubSub = SUB_SUB_KEYS.has(key);
+                            const label = labelMap[key] || key;
+                            const isChecked = selected.has(key);
+
+                            return (
+                              <label
+                                key={key}
+                                className={`
+                                group relative flex items-start gap-4 rounded-xl p-2.5 cursor-pointer transition-all duration-200 border
+                                ${isChecked ? "bg-primary/5 border-primary/20 shadow-sm" : "bg-card hover:bg-muted/50 border-transparent hover:border-border"}
+                                ${isSubSub ? "ml-10 py-2 opacity-90 scale-[0.98]" : isSub ? "ml-5 py-2" : ""}
+                              `}
+                              >
+                                <div className="flex items-center h-full pt-0.5">
+                                  <Checkbox
+                                    checked={isChecked}
+                                    onCheckedChange={() => toggle(key)}
+                                    className={`h-4.5 w-4.5 transition-transform duration-200 ${isChecked ? "scale-110" : ""}`}
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                                  <span className={`text-sm font-bold tracking-tight transition-colors ${isChecked ? "text-primary" : "text-foreground"}`}>
+                                    {isSubSub || isSub ? (
+                                      <span className="flex items-center gap-1.5">
+                                        {label.split("→")[1]?.trim() || label}
+                                      </span>
+                                    ) : label}
+                                  </span>
+                                  {(isSub || isSubSub) && (
+                                    <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide">
+                                      {label.split("→")[0]?.trim()} Extension
+                                    </span>
+                                  )}
+                                </div>
+                                {isChecked && (
+                                  <div className="absolute top-2 right-2 text-[10px] font-bold text-primary/40 pointer-events-none">ACTIVE</div>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </TabsContent>
 
-              <TabsContent value="projects" className="flex-1 flex flex-col overflow-hidden mt-0 animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="mb-4 space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={selectAllProjects} className="h-8 text-xs font-bold border-primary/20 hover:bg-primary/5">SELECT ALL</Button>
-                      <Button variant="outline" size="sm" onClick={clearAllProjects} className="h-8 text-xs font-bold border-destructive/20 hover:bg-destructive/5 text-destructive hover:text-destructive">CLEAR ALL</Button>
-                    </div>
-                    <Badge variant="outline" className="h-8 px-3 font-mono text-[10px] tracking-tight bg-muted/30">
-                      {selectedProjects.size} / {allProjects.length} PROJECTS
-                    </Badge>
-                  </div>
-
-                  <div className="relative group">
+              <TabsContent value="projects" className="flex-1 flex flex-col overflow-hidden mt-0 animate-in fade-in slide-in-from-right-4 duration-300 min-h-0">
+                <div className="mb-1.5 shrink-0 flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="relative group flex-1 min-w-0">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                     <Input
                       placeholder="Search projects by name or client..."
                       value={projectSearch}
                       onChange={(e) => setProjectSearch(e.target.value)}
-                      className="pl-10 h-10 bg-muted/20 border-border focus-visible:ring-primary/20"
+                      className="pl-10 h-8 text-sm bg-muted/20 border-border focus-visible:ring-primary/20"
                     />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 shrink-0">
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={selectAllProjects} className="h-8 text-xs font-bold border-primary/20 hover:bg-primary/5 px-2.5">SELECT ALL</Button>
+                      <Button variant="outline" size="sm" onClick={clearAllProjects} className="h-8 text-xs font-bold border-destructive/20 hover:bg-destructive/5 text-destructive hover:text-destructive px-2.5">CLEAR ALL</Button>
+                    </div>
+                    <Badge variant="outline" className="h-8 px-2.5 font-mono text-[10px] tracking-tight bg-muted/30 whitespace-nowrap">
+                      {selectedProjects.size} / {allProjects.length}
+                    </Badge>
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto pr-2 space-y-2 pb-4 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto pr-2 space-y-2 pb-4 custom-scrollbar min-h-0">
                   {filteredProjects.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 opacity-60">
                       <Building2 className="h-12 w-12 text-muted-foreground mb-3 stroke-[1.5]" />
@@ -318,9 +369,9 @@ export function PermissionDialog({ user, open, onClose, onSaved }: PermissionDia
           )}
         </Tabs>
 
-        <DialogFooter className="mt-6 pt-4 border-t border-border gap-3">
-          <Button variant="ghost" onClick={onClose} disabled={saving} className="font-bold">Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || loading} className="min-w-[140px] font-bold shadow-md">
+        <DialogFooter className="pt-2 mt-0 border-t border-border gap-2 shrink-0">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={saving} className="font-bold h-8">Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={saving || loading} className="min-w-[130px] h-8 font-bold shadow-md">
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
             {saving ? "Saving Changes..." : "Save Configuration"}
           </Button>

@@ -8719,7 +8719,7 @@ export async function registerRoutes(
   app.post(
     "/api/step11-products",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       console.log("[POST /api/step11-products] body:", JSON.stringify(req.body).slice(0, 200) + "...");
       try {
@@ -8839,7 +8839,7 @@ export async function registerRoutes(
   app.post(
     "/api/product-step3-config",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       try {
         const {
@@ -9187,7 +9187,7 @@ export async function registerRoutes(
   app.delete(
     "/api/step11-products/config/:id",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       const { id } = req.params;
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -9221,7 +9221,7 @@ export async function registerRoutes(
   app.put(
     "/api/step11-products/config/:id",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       const { id } = req.params;
       const { config_name } = req.body || {};
@@ -9294,7 +9294,7 @@ export async function registerRoutes(
   app.post(
     "/api/product-approvals",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       try {
         const {
@@ -9362,7 +9362,7 @@ export async function registerRoutes(
   app.get(
     "/api/product-approvals",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       try {
         const { status } = req.query;
@@ -9420,7 +9420,7 @@ export async function registerRoutes(
   app.get(
     "/api/product-approvals/:id",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       try {
         const approvalResult = await query(
@@ -9456,7 +9456,7 @@ export async function registerRoutes(
   app.put(
     "/api/product-approvals/:id",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team", "product_manager", "pre_sales"], "manage_product_edit_locked"),
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
@@ -9514,6 +9514,163 @@ export async function registerRoutes(
       } catch (err) {
         console.error("PUT /api/product-approvals/:id error:", err);
         res.status(500).json({ message: "Failed to update configuration" });
+      }
+    }
+  );
+
+  // POST /api/product-approvals/save-approved-edit
+  // Directly updates an ALREADY-APPROVED configuration in place — used by the
+  // "Manage Product -> Edit Approved/Submitted Configs" override permission.
+  // Unlike the normal Save flow (which creates a new pending approval request that still
+  // needs a separate admin approval), this writes straight to the live tables that Generate
+  // BOM / Finalize BOQ / PO generation etc. actually read from, so the edit is immediately
+  // visible everywhere without a second approval step. Restricted to admin/software_team or
+  // anyone explicitly granted the override permission — normal roles keep using the regular
+  // request-edit -> admin-approve flow untouched.
+  app.post(
+    "/api/product-approvals/save-approved-edit",
+    authMiddleware,
+    requireRoleOrPermission(["admin", "software_team"], "manage_product_edit_locked"),
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          productId, productName, configName, categoryId, subcategoryId,
+          totalCost, items, requiredUnitType, baseRequiredQty, wastagePctDefault,
+          dimA, dimB, dimC, description
+        } = req.body;
+
+        if (!productId || !configName) {
+          res.status(400).json({ message: "Product ID and configuration name are required" });
+          return;
+        }
+
+        await query("BEGIN");
+        try {
+          // 1. Update the live APPROVED configuration (step11_products) in place.
+          const existingStep11 = await query(
+            "SELECT id FROM step11_products WHERE product_id = $1 AND config_name = $2",
+            [productId, configName]
+          );
+          if (existingStep11.rows.length === 0) {
+            await query("ROLLBACK");
+            res.status(404).json({ message: "No approved configuration found with this name to update" });
+            return;
+          }
+          const step11Id = existingStep11.rows[0].id;
+
+          await query(
+            `UPDATE step11_products SET
+              product_name = $1, category_id = $2, subcategory_id = $3, total_cost = $4,
+              required_unit_type = $5, base_required_qty = $6, wastage_pct_default = $7,
+              dim_a = $8, dim_b = $9, dim_c = $10, description = $11, updated_at = NOW()
+             WHERE id = $12`,
+            [
+              productName, categoryId, subcategoryId, totalCost,
+              requiredUnitType || 'Sqft', baseRequiredQty || 1, wastagePctDefault || 0,
+              dimA || null, dimB || null, dimC || null, description || null, step11Id
+            ]
+          );
+
+          await query("DELETE FROM step11_product_items WHERE step11_product_id = $1", [step11Id]);
+          if (items && Array.isArray(items)) {
+            for (const item of items) {
+              await query(
+                `INSERT INTO step11_product_items
+                 (step11_product_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, freeze_and_edit, apply_wastage, shop_name, base_qty)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                [
+                  step11Id, item.materialId, item.materialName, item.unit, item.qty, item.rate,
+                  item.supplyRate, item.installRate, item.location, item.amount,
+                  item.freezeAndEdit === true || item.freeze_and_edit === true,
+                  item.applyWastage !== undefined ? item.applyWastage : true,
+                  item.shopName || item.shop_name || null, item.baseQty ?? item.qty
+                ]
+              );
+            }
+          }
+
+          // 2. Keep the Step 3 working table in sync too (Manage Product's own loader and
+          // Generate BOM's product-add flow both read this table first).
+          await query("DELETE FROM product_step3_config WHERE product_id = $1", [productId]);
+          const step3Result = await query(
+            `INSERT INTO product_step3_config (
+              product_id, product_name, config_name, category_id, subcategory_id,
+              total_cost, required_unit_type, base_required_qty, wastage_pct_default,
+              dim_a, dim_b, dim_c, description, created_at, updated_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW()) RETURNING id`,
+            [
+              productId, productName, configName, categoryId, subcategoryId, totalCost,
+              requiredUnitType || 'Sqft', baseRequiredQty || 1, wastagePctDefault || 0,
+              dimA || null, dimB || null, dimC || null, description || null
+            ]
+          );
+          const step3ConfigId = step3Result.rows[0].id;
+          if (items && Array.isArray(items)) {
+            for (const item of items) {
+              await query(
+                `INSERT INTO product_step3_config_items
+                 (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name, is_project_pricing)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+                [
+                  step3ConfigId, item.materialId, item.materialName, item.unit, item.qty, item.rate,
+                  item.supplyRate, item.installRate, item.location, item.amount, item.baseQty,
+                  item.wastagePct, item.applyWastage !== undefined ? item.applyWastage : true,
+                  item.freezeAndEdit === true || item.freeze_and_edit === true,
+                  item.shopName || item.shop_name || null,
+                  item.isProjectPricing === true || item.is_project_pricing === true
+                ]
+              );
+            }
+          }
+
+          // 3. If an audit-trail record exists in product_approvals with status 'approved',
+          // keep its items in sync too — without touching its status or creating a new row.
+          const existingApproval = await query(
+            "SELECT id FROM product_approvals WHERE product_id = $1 AND config_name = $2 AND status = 'approved'",
+            [productId, configName]
+          );
+          if (existingApproval.rows.length > 0) {
+            const approvalId = existingApproval.rows[0].id;
+            await query(
+              `UPDATE product_approvals SET
+                total_cost = $1, required_unit_type = $2, base_required_qty = $3,
+                wastage_pct_default = $4, dim_a = $5, dim_b = $6, dim_c = $7, description = $8,
+                updated_at = NOW()
+               WHERE id = $9`,
+              [
+                totalCost, requiredUnitType, baseRequiredQty, wastagePctDefault,
+                dimA || null, dimB || null, dimC || null, description || null, approvalId
+              ]
+            );
+            await query("DELETE FROM product_approval_items WHERE approval_id = $1", [approvalId]);
+            if (items && Array.isArray(items)) {
+              for (const item of items) {
+                await query(
+                  `INSERT INTO product_approval_items
+                   (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name, is_project_pricing)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+                  [
+                    approvalId, item.materialId, item.materialName, item.unit, item.qty, item.rate,
+                    item.supplyRate, item.installRate, item.location, item.amount, item.baseQty,
+                    item.wastagePct, item.applyWastage !== undefined ? item.applyWastage : true,
+                    item.freezeAndEdit === true || item.freeze_and_edit === true,
+                    item.shopName || item.shop_name || null,
+                    item.isProjectPricing === true || item.is_project_pricing === true
+                  ]
+                );
+              }
+            }
+          }
+
+          await query("COMMIT");
+          res.json({ message: "Approved configuration updated successfully" });
+        } catch (err) {
+          await query("ROLLBACK");
+          throw err;
+        }
+      } catch (err) {
+        console.error("POST /api/product-approvals/save-approved-edit error:", err instanceof Error ? err.message : err);
+        res.status(500).json({ message: "Failed to update approved configuration", error: err instanceof Error ? err.message : String(err) });
       }
     }
   );

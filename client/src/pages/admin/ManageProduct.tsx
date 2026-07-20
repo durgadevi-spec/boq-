@@ -104,6 +104,29 @@ export default function ManageProduct() {
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [dateSort, setDateSort] = useState<"newest" | "oldest">("newest");
     const [statusFilter, setStatusFilter] = useState<string>("All");
+    const [myModules, setMyModules] = useState<Set<string>>(new Set());
+
+    // Fetch the current user's granted module permissions (for the "Edit Approved/Submitted
+    // Configs" override, assignable per-user from Access Control -> Manage User Access)
+    useEffect(() => {
+        if (!user) return;
+        let cancelled = false;
+        apiFetch("/api/my-permissions")
+            .then((r) => r.json())
+            .then((data) => {
+                if (cancelled) return;
+                setMyModules(new Set(data.modules || []));
+            })
+            .catch(() => {
+                if (!cancelled) setMyModules(new Set());
+            });
+        return () => { cancelled = true; };
+    }, [user]);
+
+    // Users with the admin/software_team role, or anyone explicitly granted the
+    // "manage_product_edit_locked" permission in Access Control, can edit configurations
+    // that have already been submitted/approved without going through the request-edit flow.
+    const canEditLockedConfigs = user?.role === "admin" || user?.role === "software_team" || myModules.has("manage_product_edit_locked");
 
     // Check if the current configName has an approved version (in step11 configs or product_approvals)
     const configNameIsApproved = useMemo(() => {
@@ -123,7 +146,10 @@ export default function ManageProduct() {
         return draftConfigs.some((d: any) => d.config_name === configName);
     }, [configName, draftConfigs]);
 
-    const isReadOnly = loadedConfig?.status === "approved" || loadedConfig?.status === "pending" || isSubmitted || (configNameIsApproved && !hasEditAccess);
+    const wouldBeLocked = loadedConfig?.status === "approved" || loadedConfig?.status === "pending" || isSubmitted || (configNameIsApproved && !hasEditAccess);
+    const isReadOnly = !canEditLockedConfigs && wouldBeLocked;
+    // True when a config would normally be locked, but this user has the override permission
+    const isEditingViaOverride = canEditLockedConfigs && wouldBeLocked;
     const { toast } = useToast();
 
     const searchParams = useMemo(() => new URLSearchParams(location.split('?')[1] || ""), [location]);
@@ -444,6 +470,34 @@ export default function ManageProduct() {
         if (!selectedProduct) return;
         setIsSaving(true);
         try {
+            // If this is an approved/locked config being edited via the "Edit Approved/Submitted
+            // Configs" override permission, save directly to the live approved tables — no new
+            // pending approval request, no separate admin-approval step. The edit is the new
+            // approved data immediately, everywhere (Generate BOM, Finalize BOQ, PO, etc.).
+            if (isEditingViaOverride) {
+                const res = await apiFetch("/api/product-approvals/save-approved-edit", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(buildPayload()),
+                });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.message || "Failed to update approved configuration");
+                }
+                toast({ title: "Configuration Updated", description: `"${selectedProduct.name}" was updated and is live immediately.` });
+                return;
+            }
+
+            // Persist to the Step 3 draft table immediately as part of this save, instead of
+            // relying solely on the background 3-second autosave timer. Without this, a quick
+            // refresh right after saving could race the autosave and lose the just-added items
+            // (the page reloads the draft table first, and it may not have been written yet).
+            try {
+                await apiFetch("/api/product-step3-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildPayload()) });
+            } catch (draftErr) {
+                console.error("Failed to persist Step 3 draft during save:", draftErr);
+            }
+
             const res = await apiFetch("/api/product-approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildPayload()) });
             if (!res.ok) throw new Error("Failed to submit");
             toast({ title: "Submitted for Approval", description: `"${selectedProduct.name}" submitted for approval.` });
@@ -456,6 +510,23 @@ export default function ManageProduct() {
         if (!selectedProduct) return;
         setIsSaving(true);
         try {
+            // If this is an approved/locked config being edited via the override permission,
+            // there's no meaningful "draft" distinct from the live approved data — save it the
+            // same reliable way as the main save action, directly to the approved tables.
+            if (isEditingViaOverride) {
+                const res = await apiFetch("/api/product-approvals/save-approved-edit", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(buildPayload()),
+                });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.message || "Failed to update approved configuration");
+                }
+                toast({ title: "Configuration Updated", description: `"${selectedProduct.name}" was updated and is live immediately.` });
+                return;
+            }
+
             const res = await apiFetch("/api/product-step3-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildPayload()) });
             if (!res.ok) throw new Error("Failed to save draft");
             toast({ title: "Draft Saved", description: "Your configuration progress has been saved." });
@@ -518,16 +589,30 @@ export default function ManageProduct() {
                     .forEach((a: any) => { if (a.config_name) approvedConfigNames.add(a.config_name); });
             }
 
-            // Try Step 3 draft — but skip if its config_name matches an approved config
+            // Try Step 3 draft — but skip it if it's a STALE leftover that shares a name with an
+            // approved config. A Step 3 draft is only trusted over the approved data when it was
+            // saved MORE RECENTLY than the approval itself (e.g. a genuine in-progress edit made
+            // via the "Edit Approved/Submitted Configs" permission). Otherwise we'd risk discarding
+            // a real edit on refresh just because its name happens to match an approved config.
             if (s3Res.ok) {
                 const d = await s3Res.json();
                 if (d.items?.length > 0) {
                     const s3ConfigName = d.config?.config_name || "";
-                    if (!s3ConfigName || !approvedConfigNames.has(s3ConfigName)) {
+                    const matchesApproved = !!s3ConfigName && approvedConfigNames.has(s3ConfigName);
+                    let s3IsNewerThanApproval = true;
+                    if (matchesApproved) {
+                        const matchingApproved = step11Configs.find(
+                            (c: any) => c.product.status === "approved" && c.product.config_name === s3ConfigName
+                        );
+                        const s3Updated = d.config?.updated_at ? new Date(d.config.updated_at).getTime() : 0;
+                        const approvedUpdated = matchingApproved?.product?.updated_at ? new Date(matchingApproved.product.updated_at).getTime() : 0;
+                        s3IsNewerThanApproval = s3Updated > approvedUpdated;
+                    }
+                    if (!matchesApproved || s3IsNewerThanApproval) {
                         applyConfig(d.config, d.items, `Loaded Step 3 config for ${product.name}.`);
                         return;
                     }
-                    // Step 3 draft matches approved config — skip it, fall through to load approved
+                    // Step 3 draft matches an approved config and is not newer — it's stale, skip it and fall through to load approved
                 }
             }
 
@@ -1818,6 +1903,19 @@ export default function ManageProduct() {
                         {/* Step 3 */}
                         {step === 3 && (
                             <div className="space-y-8">
+                                {/* Override notice: shown when this user is bypassing the normal lock via the
+                                    "Manage Product -> Edit Approved/Submitted Configs" permission */}
+                                {isEditingViaOverride && (
+                                    <div className="bg-indigo-50 border-2 border-indigo-200 p-5 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-500 shadow-sm">
+                                        <Edit className="h-6 w-6 text-indigo-600 shrink-0 mt-0.5" />
+                                        <div>
+                                            <h4 className="font-bold text-indigo-800 uppercase text-xs tracking-wider mb-1">Editing an {loadedConfig?.status === "approved" ? "Approved" : "Submitted"} Configuration</h4>
+                                            <p className="text-sm text-indigo-700 font-medium">
+                                                You have permission to edit this configuration directly, bypassing the normal lock. Changes you save here will be submitted for approval as usual.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                                 {/* Read-only banner with Request Edit button */}
                                 {isReadOnly && (
                                     <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-500 shadow-sm">
@@ -2152,11 +2250,16 @@ export default function ManageProduct() {
                                         </div>
                                         <div className="flex items-center gap-3 w-full sm:w-auto">
                                             <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={isSaving || configMaterials.length === 0 || isReadOnly} className="w-full sm:w-auto h-10 border-orange-400 text-orange-700 hover:bg-orange-50 px-6">
-                                                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Save Draft"}
+                                                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (isEditingViaOverride ? "Save Changes" : "Save Draft")}
                                             </Button>
-                                            <Button size="sm" onClick={handleSaveInPlace} disabled={isSaving || configMaterials.length === 0 || isReadOnly} className="w-full sm:w-auto h-10 bg-green-600 hover:bg-green-700 text-white font-bold px-6 transition-all shadow-md">
-                                                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting...</> : "Submit for Approval"}
-                                            </Button>
+                                            {/* "Submit for Approval" is redundant once editing an approved config via the
+                                                override permission — Save Changes above already updates it directly, live,
+                                                with no separate approval step needed. Only show this for the normal flow. */}
+                                            {!isEditingViaOverride && (
+                                                <Button size="sm" onClick={handleSaveInPlace} disabled={isSaving || configMaterials.length === 0 || isReadOnly} className="w-full sm:w-auto h-10 bg-green-600 hover:bg-green-700 text-white font-bold px-6 transition-all shadow-md">
+                                                    {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting...</> : "Submit for Approval"}
+                                                </Button>
+                                            )}
                                             <Button size="sm" onClick={nextStep} className="w-full sm:w-auto h-10 bg-primary hover:bg-primary/90 text-white font-bold px-6 transition-all">Continue to Review <ArrowRight className="ml-2 h-4 w-4" /></Button>
                                         </div>
                                     </div>

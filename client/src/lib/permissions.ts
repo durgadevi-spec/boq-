@@ -50,6 +50,7 @@ export const ALL_SIDEBAR_MODULES = [
   // ── Manage Product: granular sub-permissions ──────────────────────────────
   { key: "manage_product_work", label: "Manage Product → Needs Work (Edit/Submit)" },
   { key: "manage_product_approval", label: "Manage Product → Approve / Reject" },
+  { key: "manage_product_edit_locked", label: "Manage Product → Edit Approved / Submitted Configs" },
 ];
 
 // ─── Grouped view used by PermissionDialog ────────────────────────────────────
@@ -82,6 +83,7 @@ export const PERMISSION_GROUPS = [
       "manage_product",
       "manage_product_work",
       "manage_product_approval",
+      "manage_product_edit_locked",
     ],
   },
   {
