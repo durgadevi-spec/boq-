@@ -115,27 +115,39 @@ export async function registerSketchRoutes(app: Express) {
         const shopIds = shopsRes.rows.map((row: any) => row.id);
         
         if (shopIds.length > 0) {
-          // Add subquery to filter plans that have items assigned to this supplier's shops
+          // Add subquery to filter plans that have items assigned to this supplier's shops, OR plans created by them
           queryStr = `
             SELECT DISTINCT sp.*, p.name as project_name, spl.is_locked, spl.request_status
             FROM sketch_plans sp 
             LEFT JOIN boq_projects p ON sp.project_id = p.id 
             LEFT JOIN sketch_plan_locks spl ON sp.id = spl.plan_id
-            WHERE sp.id IN (
+            WHERE (sp.id IN (
               SELECT DISTINCT plan_id FROM sketch_plan_items 
               WHERE assigned_vendor_id = ANY($1)
-            )
+            ) OR sp.created_by = $2)
           `;
           queryParams.push(shopIds);
+          queryParams.push(userId);
           
           if (parent_id) {
             whereConditions.push(`(sp.id = $${queryParams.length + 1} OR sp.parent_plan_id = $${queryParams.length + 1})`);
             queryParams.push(parent_id);
           }
         } else {
-          // Supplier has no shops, return empty result
-          res.json({ plans: [] });
-          return;
+          // Supplier has no shops, return only plans they created
+          queryStr = `
+            SELECT DISTINCT sp.*, p.name as project_name, spl.is_locked, spl.request_status
+            FROM sketch_plans sp 
+            LEFT JOIN boq_projects p ON sp.project_id = p.id 
+            LEFT JOIN sketch_plan_locks spl ON sp.id = spl.plan_id
+            WHERE sp.created_by = $1
+          `;
+          queryParams.push(userId);
+
+          if (parent_id) {
+            whereConditions.push(`(sp.id = $${queryParams.length + 1} OR sp.parent_plan_id = $${queryParams.length + 1})`);
+            queryParams.push(parent_id);
+          }
         }
       } else {
         // Non-suppliers see all plans (existing behavior)

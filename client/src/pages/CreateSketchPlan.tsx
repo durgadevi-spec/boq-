@@ -1155,6 +1155,7 @@ export default function CreateSketchPlan() {
   const { toast } = useToast();
   const [currentId, setCurrentId] = useState<string | null>(paramId || null);
   const isEditing = !!currentId;
+  const [planCreatedBy, setPlanCreatedBy] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState<string>("none");
@@ -1658,6 +1659,7 @@ export default function CreateSketchPlan() {
   const { user } = useAuth();
   const userRole = user?.role || "user";
   const isSupplier = userRole === "supplier";
+  const isSupplierReadOnly = isSupplier && isEditing && (planCreatedBy !== user?.id); // Suppliers can create new plans but view existing ones as read-only UNLESS they created it
   const isAdmin = userRole === "admin";
 
   // Column Visibility State and Handlers
@@ -2170,6 +2172,7 @@ export default function CreateSketchPlan() {
         if (res.ok && isMounted) {
           const data = await res.json();
           const p = data.plan;
+          setPlanCreatedBy(p.created_by || null);
           setName(p.name || "");
           setProjectId(p.project_id || "none");
           setProjectName(p.project_name || "");
@@ -2936,6 +2939,7 @@ export default function CreateSketchPlan() {
         const data = await res.json();
         if (!currentId && data.id) {
           setCurrentId(data.id);
+          if (user?.id) setPlanCreatedBy(user.id);
         }
 
         // CRITICAL: Sync items with server IDs to prevent duplication on next save
@@ -3536,7 +3540,7 @@ export default function CreateSketchPlan() {
 
   const sortedAllItems = React.useMemo(() => {
     const baseItems = items.filter(it =>
-      (isSupplier ? it.assigned_vendor_id === (user as any)?.shopId : true) &&
+      (isSupplierReadOnly ? it.assigned_vendor_id === (user as any)?.shopId : true) &&
       ((it.item_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
         (it.description || "").toLowerCase().includes(searchTerm.toLowerCase()))
     );
@@ -3557,7 +3561,7 @@ export default function CreateSketchPlan() {
       // Within same category or both unassigned, use item sort_order
       return (a.sort_order || 0) - (b.sort_order || 0);
     });
-  }, [items, searchTerm, categoryOrder, isSupplier, user]);
+  }, [items, searchTerm, categoryOrder, isSupplierReadOnly, user]);
 
   const filteredItems = React.useMemo(() => {
     if (categoryFilter === "all") return sortedAllItems;
@@ -3642,7 +3646,7 @@ export default function CreateSketchPlan() {
                   <ArrowLeft className="w-4 h-4" />
                 </Button>
                 <h1 className="text-lg font-bold tracking-tight text-slate-800">
-                  {isSupplier ? "View Sketch Plan" : (isEditing ? "Edit Sketch Plan" : "Create New Sketch Plan")}
+                  {isSupplierReadOnly ? "View Sketch Plan" : (isEditing ? "Edit Sketch Plan" : "Create New Sketch Plan")}
                   {isEditing && currentVersionNumber && (
                     <span className="ml-2 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-sm border border-indigo-100">
                       V{currentVersionNumber}
@@ -3733,7 +3737,7 @@ export default function CreateSketchPlan() {
                 <Button variant="outline" size="sm" onClick={() => setIsEmailDialogOpen(true)} className="gap-1.5 h-8 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-50">
                   <MessageSquare className="w-3 h-3" /> Email Plan
                 </Button>
-                {userRole !== "supplier" && (
+                {!isSupplierReadOnly && (
                   <Button variant="outline" size="sm" onClick={() => {
                     const templateName = prompt("Enter a name for this template:", name);
                     if (templateName) {
@@ -3747,20 +3751,20 @@ export default function CreateSketchPlan() {
                     <Layers className="w-3 h-3" /> Save as Template
                   </Button>
                 )}
-                {userRole !== "supplier" && (
+                {!isSupplierReadOnly && (
                   <Button variant="outline" size="sm" onClick={findDuplicatesInCurrentPlan} className="gap-1.5 h-8 text-[10px] border-amber-200 text-amber-600 hover:bg-amber-50">
                     <Copy className="w-3 h-3" /> Check Duplicates
                   </Button>
                 )}
 
-                {userRole !== "supplier" && (
+                {!isSupplierReadOnly && (
                   <Button onClick={savePlan} disabled={saving || isLocked} className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white h-8 px-4 text-[10px] font-bold shadow-sm">
                     <Save className="w-3 h-3" /> {saving ? "Saving..." : "Save Plan"}
                   </Button>
                 )}
 
                 {/* Delete Version Button */}
-                {isEditing && userRole !== 'supplier' && (
+                {isEditing && !isSupplierReadOnly && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -3774,7 +3778,7 @@ export default function CreateSketchPlan() {
                 )}
 
                 {/* New Version Button */}
-                {isEditing && userRole !== 'supplier' && (
+                {isEditing && !isSupplierReadOnly && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -3883,7 +3887,7 @@ export default function CreateSketchPlan() {
                       onChange={(e) => setName(e.target.value)}
                       className={cn("h-8 text-xs", !name.trim() && "border-red-300 bg-red-50 focus:ring-red-500")}
                       placeholder="Enter Plan Name (Required)"
-                      disabled={isLocked || userRole === "supplier"}
+                      disabled={isLocked || isSupplierReadOnly}
                     />
                   </div>
                   <div className="space-y-1 col-span-1 md:col-span-3">
@@ -3895,7 +3899,7 @@ export default function CreateSketchPlan() {
                           role="combobox"
                           aria-expanded={projectOpen}
                           className="w-full justify-between h-8 text-xs font-normal px-2"
-                          disabled={isLocked || isSupplier}
+                          disabled={isLocked || isSupplierReadOnly}
                         >
                           <span className="truncate">
                             {projectId !== "none"
@@ -3938,11 +3942,11 @@ export default function CreateSketchPlan() {
                   </div>
                   <div className="space-y-1 col-span-1 md:col-span-2">
                     <Label className="text-[10px] uppercase font-bold text-slate-500">Plan Date</Label>
-                    <Input type="date" value={planDate} onChange={(e) => setPlanDate(e.target.value)} className="h-8 text-xs" disabled={isLocked || userRole === "supplier"} />
+                    <Input type="date" value={planDate} onChange={(e) => setPlanDate(e.target.value)} className="h-8 text-xs" disabled={isLocked || isSupplierReadOnly} />
                   </div>
                   <div className="space-y-1 col-span-1 md:col-span-4">
                     <Label className="text-[10px] uppercase font-bold text-slate-500">Site Location / Address</Label>
-                    <Input value={locationStr} onChange={(e) => setLocationStr(e.target.value)} className="h-8 text-xs" placeholder="Address" disabled={isLocked || userRole === "supplier"} />
+                    <Input value={locationStr} onChange={(e) => setLocationStr(e.target.value)} className="h-8 text-xs" placeholder="Address" disabled={isLocked || isSupplierReadOnly} />
                   </div>
                 </CardContent>
               </Card>
@@ -4142,7 +4146,7 @@ export default function CreateSketchPlan() {
                         </Button>
                       </>
                     )}
-                    {userRole !== "supplier" && (
+                    {!isSupplierReadOnly && (
                       <>
                         <Button
                           onClick={async () => {
@@ -4394,7 +4398,7 @@ export default function CreateSketchPlan() {
                               idx={items.indexOf(item)} // Keep original items index for reordering logic
                               displayIdx={globalIdx + 1}
                               itemsLength={items.length}
-                              isLocked={isLocked || userRole === "supplier"}
+                              isLocked={isLocked || isSupplierReadOnly}
                               isFiltering={isFiltering}
                               isCompact={isCompact}
                               columnVisibility={columnVisibility}
@@ -4455,14 +4459,14 @@ export default function CreateSketchPlan() {
                   <CardContent
                     className={cn(
                       "p-3 flex-1 overflow-y-auto max-h-[220px] relative z-20 transition-colors",
-                      !(isLocked || userRole === "supplier") && "min-h-[100px]"
+                      !(isLocked || isSupplierReadOnly) && "min-h-[100px]"
                     )}
                     onDragOver={(e) => {
-                      if (isLocked || userRole === "supplier") return;
+                      if (isLocked || isSupplierReadOnly) return;
                       e.preventDefault();
                     }}
                     onDrop={(e) => {
-                      if (isLocked || userRole === "supplier") return;
+                      if (isLocked || isSupplierReadOnly) return;
                       handleImageDrop(e, { type: "main" });
                     }}
                   >
@@ -4472,16 +4476,16 @@ export default function CreateSketchPlan() {
                           key={idx}
                           className={cn(
                             "relative group aspect-square rounded border overflow-hidden bg-slate-100 transition-all",
-                            (isLocked || userRole === "supplier") ? "pointer-events-auto" : "cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-indigo-300"
+                            (isLocked || isSupplierReadOnly) ? "pointer-events-auto" : "cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-indigo-300"
                           )}
-                          draggable={!(isLocked || userRole === "supplier")}
+                          draggable={!(isLocked || isSupplierReadOnly)}
                           onDragStart={(e) => handleImageDragStart(e, { type: "main", imgIdx: idx })}
                         >
                           <img src={img.url} className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setPreviewImage(img)} title="Click to view full image" />
                           <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] p-1 truncate opacity-0 group-hover:opacity-100 transition-opacity pr-6 pointer-events-none">
                             {img.name}
                           </div>
-                          {!(isLocked || userRole === "supplier") && (
+                          {!(isLocked || isSupplierReadOnly) && (
                             <div className="absolute top-1 left-1 flex gap-1 z-10">
                               <button onClick={() => {
                                 setSketchTarget("main");
@@ -4493,7 +4497,7 @@ export default function CreateSketchPlan() {
                               </button>
                             </div>
                           )}
-                          {!(isLocked || isSupplier) && (
+                          {!(isLocked || isSupplierReadOnly) && (
                             <>
                               <button onClick={() => renamePlanImage(idx)} className="absolute bottom-1 right-1 bg-indigo-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Rename photo">
                                 <Pencil className="w-3 h-3" />
@@ -4509,10 +4513,10 @@ export default function CreateSketchPlan() {
                           )}
                         </div>
                       ))}
-                      {!(isLocked || isSupplier) && (
+                      {!(isLocked || isSupplierReadOnly) && (
                         <>
-                          <input type="file" multiple accept="image/*" className="hidden" id="plan-photo-upload" onChange={handlePlanImageUpload} disabled={isLocked || isSupplier} />
-                          <Button variant="ghost" size="sm" className="col-span-4 border-2 border-dashed border-slate-200 h-10 hover:bg-slate-100 p-0" asChild disabled={isLocked || isSupplier}>
+                          <input type="file" multiple accept="image/*" className="hidden" id="plan-photo-upload" onChange={handlePlanImageUpload} disabled={isLocked || isSupplierReadOnly} />
+                          <Button variant="ghost" size="sm" className="col-span-4 border-2 border-dashed border-slate-200 h-10 hover:bg-slate-100 p-0" asChild disabled={isLocked || isSupplierReadOnly}>
                             <label htmlFor="plan-photo-upload" className="cursor-pointer flex flex-col items-center justify-center w-full h-full">
                               <Plus className="w-5 h-5 text-slate-400" />
                             </label>
@@ -4529,14 +4533,14 @@ export default function CreateSketchPlan() {
                     <CardTitle className="text-xs font-bold flex items-center gap-2">
                       <Paperclip className="w-3.5 h-3.5 text-blue-500" /> Plan Attachments (PDF/Excel)
                     </CardTitle>
-                    {userRole !== "supplier" && (
+                    {!isSupplierReadOnly && (
                       <div className="flex gap-1">
-                        <input type="file" accept=".pdf" className="hidden" id="pdf-upload" onChange={(e) => handleAttachmentUpload(e, "pdf")} disabled={isLocked} />
-                        <label htmlFor="pdf-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", isLocked && "opacity-50 cursor-not-allowed")}>
+                        <input type="file" accept=".pdf" className="hidden" id="pdf-upload" onChange={(e) => handleAttachmentUpload(e, "pdf")} disabled={isLocked || isSupplierReadOnly} />
+                        <label htmlFor="pdf-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", (isLocked || isSupplierReadOnly) && "opacity-50 cursor-not-allowed")}>
                           <FileUp className="w-3.5 h-3.5 text-red-500" />
                         </label>
-                        <input type="file" accept=".xlsx,.xls" className="hidden" id="excel-upload" onChange={(e) => handleAttachmentUpload(e, "excel")} disabled={isLocked} />
-                        <label htmlFor="excel-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", isLocked && "opacity-50 cursor-not-allowed")}>
+                        <input type="file" accept=".xlsx,.xls" className="hidden" id="excel-upload" onChange={(e) => handleAttachmentUpload(e, "excel")} disabled={isLocked || isSupplierReadOnly} />
+                        <label htmlFor="excel-upload" className={cn("cursor-pointer p-1 rounded hover:bg-slate-200 transition-colors", (isLocked || isSupplierReadOnly) && "opacity-50 cursor-not-allowed")}>
                           <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" />
                         </label>
                       </div>
@@ -4560,7 +4564,7 @@ export default function CreateSketchPlan() {
                               <a href={att.url} download={att.name} className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-white rounded transition-colors">
                                 <Download className="w-3.5 h-3.5" />
                               </a>
-                              {!(isLocked || userRole === "supplier") && (
+                              {!(isLocked || isSupplierReadOnly) && (
                                 <button onClick={() => {
                                   const removed = attachments[idx];
                                   if (removed.id) setDeletedAttachmentIds(prev => [...prev, removed.id!]);
@@ -4603,7 +4607,7 @@ export default function CreateSketchPlan() {
                             lastSketchItemIdxRef.current = null;
                             lastSketchPlanImgIdxRef.current = null;
                           }
-                        }} size="sm" className="bg-slate-800 hover:bg-black text-white text-[10px] h-8 px-4 w-full mt-3" disabled={isLocked || userRole === "supplier"}>Open Sketch Editor</Button>
+                        }} size="sm" className="bg-slate-800 hover:bg-black text-white text-[10px] h-8 px-4 w-full mt-3" disabled={isLocked || isSupplierReadOnly}>Open Sketch Editor</Button>
                       </DialogTrigger>
                       <DialogContent className="max-w-[850px] w-[95vw] max-h-[95vh] h-[90vh] overflow-y-auto flex flex-col p-1 sm:p-4">
                         <DialogHeader className="px-2 sm:px-4">
@@ -4632,7 +4636,7 @@ export default function CreateSketchPlan() {
                         </DialogHeader>
                         <div className="py-2">
                           <SketchPad
-                            readOnly={isLocked || userRole === "supplier"}
+                            readOnly={isLocked || isSupplierReadOnly}
                             initialData={sketchInitialData}
                             unitPrefix={sketchTarget === "main" ? (items[0]?.dimension_unit || "ft") as string : (items[parseInt(sketchTarget.replace(/^(pre-|post-)/, ""))]?.dimension_unit || "ft") as string}
                             onAutoSave={handleSketchAutoSave}

@@ -332,11 +332,11 @@ export default function SketchPlans() {
                   <Button variant="outline" onClick={() => setLocation("/sketch-templates")} className="flex items-center gap-2">
                     <Layers className="w-4 h-4" /> Manage Templates
                   </Button>
-                  <Button onClick={() => setLocation("/create-sketch-plan")} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
-                    <Plus className="w-4 h-4" /> Create New Plan
-                  </Button>
                 </>
               )}
+              <Button onClick={() => setLocation("/create-sketch-plan")} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
+                <Plus className="w-4 h-4" /> Create New Plan
+              </Button>
             </div>
           </div>
         </div>
