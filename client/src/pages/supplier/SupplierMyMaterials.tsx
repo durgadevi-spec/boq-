@@ -17,6 +17,8 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 
 interface Material {
@@ -64,6 +66,7 @@ export default function SupplierMyMaterials() {
   const [selectedShop, setSelectedShop] = useState<string>("all");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
   useEffect(() => {
     loadAll();
@@ -180,6 +183,25 @@ export default function SupplierMyMaterials() {
                 <Package size={14} />
                 {filtered.length} Shown
               </div>
+              {/* View toggle */}
+              <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode("list")}
+                  title="List view"
+                  className={`p-1.5 rounded-md transition-all ${viewMode === "list" ? "bg-white shadow-sm text-slate-900" : "text-slate-400 hover:text-slate-600"
+                    }`}
+                >
+                  <List size={16} />
+                </button>
+                <button
+                  onClick={() => setViewMode("grid")}
+                  title="Grid view"
+                  className={`p-1.5 rounded-md transition-all ${viewMode === "grid" ? "bg-white shadow-sm text-slate-900" : "text-slate-400 hover:text-slate-600"
+                    }`}
+                >
+                  <LayoutGrid size={16} />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -284,6 +306,22 @@ export default function SupplierMyMaterials() {
                 </p>
               </div>
             </div>
+          ) : viewMode === "list" ? (
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+              {/* Table header — desktop only */}
+              <div className="hidden md:grid grid-cols-[1fr_140px_120px_140px_110px] gap-4 px-5 py-3 bg-slate-50 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <div>Product Name</div>
+                <div>Category</div>
+                <div>Brand</div>
+                <div>Shop</div>
+                <div className="text-right">Rate</div>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {filtered.map((material) => (
+                  <MaterialListRow key={material.id} material={material} />
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filtered.map((material) => (
@@ -318,13 +356,95 @@ function StatusBadge({ approved }: { approved?: boolean | null }) {
   );
 }
 
+// ── Individual Material Row (list view) ──────────────────────────────────────
+function MaterialListRow({ material }: { material: Material }) {
+  const rate = material.rate
+    ? parseFloat(String(material.rate)).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+    : null;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-[1fr_140px_120px_140px_110px] gap-2 md:gap-4 px-5 py-4 hover:bg-slate-50/60 transition-colors items-center">
+      {/* Name + thumbnail + code + status */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center overflow-hidden flex-shrink-0 border border-slate-100">
+          {material.image ? (
+            <img src={material.image} alt={material.name} className="w-full h-full object-cover" />
+          ) : (
+            <Package size={18} className="text-slate-200" strokeWidth={1.5} />
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-bold text-slate-900 text-sm leading-tight truncate">
+              {material.name}
+            </p>
+            <StatusBadge approved={material.approved} />
+          </div>
+          {material.code && (
+            <p className="text-[11px] text-slate-400 font-medium mt-0.5">#{material.code}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Category */}
+      <div className="md:text-left">
+        {material.category ? (
+          <span className="inline-flex text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full truncate max-w-full">
+            {material.category}
+          </span>
+        ) : (
+          <span className="text-slate-300 text-xs">—</span>
+        )}
+      </div>
+
+      {/* Brand */}
+      <div>
+        {material.brandname ? (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full truncate max-w-full">
+            <Tag size={9} /> {material.brandname}
+          </span>
+        ) : (
+          <span className="text-slate-300 text-xs">—</span>
+        )}
+      </div>
+
+      {/* Shop */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        {material.shop_name ? (
+          <>
+            <Store size={11} className="text-slate-400 flex-shrink-0" />
+            <span className="text-[11px] text-slate-500 font-medium truncate">{material.shop_name}</span>
+          </>
+        ) : (
+          <span className="text-slate-300 text-xs">—</span>
+        )}
+      </div>
+
+      {/* Rate */}
+      <div className="text-left md:text-right">
+        {rate ? (
+          <div>
+            <span className="text-sm font-black text-slate-900">₹{rate}</span>
+            {material.unit && <span className="text-xs text-slate-400 font-medium"> / {material.unit}</span>}
+          </div>
+        ) : (
+          <span className="text-slate-300 text-xs">—</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Individual Material Card ──────────────────────────────────────────────────
 function MaterialCard({ material }: { material: Material }) {
   const rate = material.rate
     ? parseFloat(String(material.rate)).toLocaleString("en-IN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
     : null;
 
   return (
@@ -358,9 +478,9 @@ function MaterialCard({ material }: { material: Material }) {
       <div className="p-4 flex-1 flex flex-col gap-3">
         {/* Name + Code */}
         <div>
-          <h3 className="font-bold text-slate-900 text-sm leading-tight line-clamp-2">
+          <p className="font-bold text-slate-900 text-sm leading-tight line-clamp-2">
             {material.name}
-          </h3>
+          </p>
           {material.code && (
             <p className="text-[11px] text-slate-400 font-medium mt-0.5">
               #{material.code}

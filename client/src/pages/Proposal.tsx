@@ -24,21 +24,46 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(params?.projectId || null);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [editedItems, setEditedItems] = useState<Record<string, any>>({});
-  
+
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [showMaterialPicker, setShowMaterialPicker] = useState(false);
   const [showStep11Preview, setShowStep11Preview] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [isAddingItems, setIsAddingItems] = useState(false);
-  
+  const [shopName, setShopName] = useState("");
+  const [shopLocation, setShopLocation] = useState("");
+
+  // Load the supplier's shop name/location for the sidebar header (same source as other supplier pages)
+  useEffect(() => {
+    if (!isSupplier) return;
+    (async () => {
+      try {
+        const token = localStorage.getItem("authToken");
+        const response = await fetch("/api/supplier/my-shops", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        const supplierShops = data.shops || [];
+        const primaryShop = supplierShops.find((s: any) => s.approved === true) || supplierShops[0];
+        if (primaryShop) {
+          setShopName(primaryShop.name);
+          setShopLocation(primaryShop.location || "");
+        }
+      } catch {
+        // silently ignore; sidebar just falls back to blank as before
+      }
+    })();
+  }, [isSupplier]);
+
   // Parse URL params
   useEffect(() => {
     const qs = window.location.search;
     const urlParams = new URLSearchParams(qs);
-    
+
     // Extract projectId from path if available
     let pid = params?.projectId;
-    
+
     // If not in params, try to extract from URL path
     if (!pid) {
       const pathMatch = window.location.pathname.match(/\/proposal\/([^/?]+)/);
@@ -46,14 +71,14 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
         pid = pathMatch[1];
       }
     }
-    
+
     // Also check query string as fallback
     if (!pid) {
       pid = urlParams.get("project") || urlParams.get("projectId");
     }
-    
+
     const vid = urlParams.get("versionId") || urlParams.get("proposalId");
-    
+
     if (pid && !selectedProjectId) setSelectedProjectId(pid);
     if (vid && !selectedProposalId) setSelectedProposalId(vid);
   }, [params?.projectId, selectedProjectId, selectedProposalId]);
@@ -130,7 +155,7 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
     setEditedItems(prev => {
       const existing = prev[id] || items.find((i: any) => i.id === id) || { id };
       const next = { ...existing, [field]: value };
-      
+
       // Auto calc amount
       if (field === "rate" || field === "qty") {
         next.amount = Number(next.qty || 0) * Number(next.rate || 0);
@@ -205,7 +230,7 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
 
     try {
       toast({ title: "Adding Items", description: `Adding ${selectedItems.length} items to proposal...` });
-      
+
       // We'll call the endpoint for each item. 
       // In a production app, a batch endpoint would be better.
       for (const item of selectedItems) {
@@ -243,7 +268,7 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
   const isLocked = selectedProposal?.status && selectedProposal.status !== 'draft';
 
   return (
-    <LayoutComponent {...(isSupplier ? { shopName: "", shopLocation: "", shopApproved: true } : {})}>
+    <LayoutComponent {...(isSupplier ? { shopName, shopLocation, shopApproved: true } : {})}>
       <div className="bg-slate-50 min-h-screen p-6 pb-32">
         <div className="max-w-7xl mx-auto space-y-6">
           <header className="flex justify-between items-center border-b pb-4 border-slate-200">
@@ -287,32 +312,32 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
 
               {selectedProposal && (
                 <div className="ml-auto flex items-center gap-3">
-                   {isSupplier && (
-                     <div className="flex gap-2">
-                      <Button 
-                        onClick={handleAddProduct} 
-                        variant="outline" 
+                  {isSupplier && (
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleAddProduct}
+                        variant="outline"
                         className="h-10 border-blue-200 text-blue-600 hover:bg-blue-50 font-bold"
                         disabled={isLocked || isAddingItems}
                       >
                         <Plus className="h-4 w-4 mr-2" /> Add Product
                       </Button>
-                      <Button 
-                        onClick={handleAddManualItem} 
-                        variant="outline" 
+                      <Button
+                        onClick={handleAddManualItem}
+                        variant="outline"
                         className="h-10 border-slate-200 text-slate-600 hover:bg-slate-50 font-bold"
                         disabled={isLocked || isAddingItems}
                       >
                         <Plus className="h-4 w-4 mr-2" /> Add Item
                       </Button>
                     </div>
-                   )}
-                   <Badge 
+                  )}
+                  <Badge
                     variant={selectedProposal.status === 'approved' ? 'default' : 'secondary'}
                     className={selectedProposal.status === 'approved' ? 'bg-green-600 h-10 px-4' : 'h-10 px-4'}
-                   >
-                     Status: {selectedProposal.status?.toUpperCase()}
-                   </Badge>
+                  >
+                    Status: {selectedProposal.status?.toUpperCase()}
+                  </Badge>
                 </div>
               )}
             </CardContent>
@@ -341,7 +366,7 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
                       <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-4 py-3 font-medium">{item.item_name}</td>
                         <td className="px-4 py-3">
-                          <input 
+                          <input
                             value={getVal(item.id, "description", item.description || "")}
                             onChange={e => handleEdit(item.id, "description", e.target.value)}
                             disabled={isLocked}
@@ -350,7 +375,7 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
                           />
                         </td>
                         <td className="px-4 py-3 text-center font-medium bg-slate-50/50">
-                          <input 
+                          <input
                             type="number"
                             value={getVal(item.id, "qty", item.qty || 0)}
                             onChange={e => handleEdit(item.id, "qty", Number(e.target.value))}
@@ -368,11 +393,10 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
                               onChange={e => handleEdit(item.id, "rate", Number(e.target.value))}
                               disabled={isLocked}
                               placeholder="Enter your rate"
-                              className={`w-full pl-6 pr-2 py-1 text-right border rounded font-medium focus:ring-1 transition-all ${
-                                getVal(item.id, "rate", item.rate) == 0
+                              className={`w-full pl-6 pr-2 py-1 text-right border rounded font-medium focus:ring-1 transition-all ${getVal(item.id, "rate", item.rate) == 0
                                   ? 'bg-amber-50 border-amber-300 text-amber-800 placeholder:text-amber-500'
                                   : 'bg-transparent'
-                              }`}
+                                }`}
                             />
                             {getVal(item.id, "rate", item.rate) == 0 && !isLocked && (
                               <span className="absolute -right-1 -top-1 flex h-2 w-2">
@@ -395,17 +419,17 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
                   </tbody>
                 </table>
               </div>
-              
+
               <div className="p-4 border-t bg-slate-50 flex justify-between items-center">
                 <div className="text-lg font-bold">
                   Total Value: ₹
                   {items.reduce((sum: number, it: any) => sum + Number(getVal(it.id, "amount", it.amount) || 0), 0)
-                      .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
 
                 {!isLocked && items.length > 0 && (
-                  <Button 
-                    onClick={() => submitMutation.mutate()} 
+                  <Button
+                    onClick={() => submitMutation.mutate()}
                     disabled={submitMutation.isPending || items.some((it: any) => getVal(it.id, "rate", it.rate) == 0)}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
@@ -424,24 +448,24 @@ export default function Proposal({ params }: { params?: { projectId?: string } }
         </div>
       </div>
 
-      <ProductPicker 
-        open={showProductPicker} 
-        onOpenChange={setShowProductPicker} 
-        onSelectProduct={handleSelectProduct} 
-        selectedProjectId={selectedProjectId!} 
+      <ProductPicker
+        open={showProductPicker}
+        onOpenChange={setShowProductPicker}
+        onSelectProduct={handleSelectProduct}
+        selectedProjectId={selectedProjectId!}
       />
-      <MaterialPicker 
-        open={showMaterialPicker} 
-        onOpenChange={setShowMaterialPicker} 
+      <MaterialPicker
+        open={showMaterialPicker}
+        onOpenChange={setShowMaterialPicker}
         onSelectTemplate={handleSelectMaterial}
         vendorShopId={selectedProposal?.vendor_id}
       />
       {selectedProduct && (
-        <Step11Preview 
-          product={selectedProduct} 
-          open={showStep11Preview} 
-          onClose={() => { setShowStep11Preview(false); setTimeout(() => setSelectedProduct(null), 300); }} 
-          onAddToBoq={handleAddToProposal} 
+        <Step11Preview
+          product={selectedProduct}
+          open={showStep11Preview}
+          onClose={() => { setShowStep11Preview(false); setTimeout(() => setSelectedProduct(null), 300); }}
+          onAddToBoq={handleAddToProposal}
         />
       )}
     </LayoutComponent>

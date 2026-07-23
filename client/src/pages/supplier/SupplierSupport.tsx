@@ -54,12 +54,34 @@ export function SupplierSupport({
   const [email, setEmail] = useState(user?.username || "");
   const [message, setMessage] = useState("");
   const [deleteDialog, setDeleteDialog] = useState<{ isOpen: boolean; id: string; name: string } | null>(null);
-  
+  const [fetchedShopName, setFetchedShopName] = useState(shopName);
+  const [fetchedShopLocation, setFetchedShopLocation] = useState(shopLocation);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadMessages();
   }, []);
+
+  // The /supplier/support route renders this page with no props, so shopName/shopLocation
+  // above always fall back to their defaults. Fetch the real shop here, same source used
+  // by the other supplier pages, so the sidebar shows the actual shop name.
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getJSON("/api/supplier/my-shops");
+        const shops = data?.shops || [];
+        const primaryShop = shops.find((s: any) => s.approved === true) || shops[0];
+        if (primaryShop) {
+          setFetchedShopName(primaryShop.name);
+          setFetchedShopLocation(primaryShop.location || "");
+        }
+      } catch (e) {
+        console.error("shop load error", e);
+      }
+    })();
+  }, []);
+
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -72,7 +94,7 @@ export function SupplierSupport({
       setLoading(true);
       const data = await getJSON('/support-messages');
       // Filter messages for this supplier if email is known
-      const filtered = (data.messages || []).filter((m: any) => 
+      const filtered = (data.messages || []).filter((m: any) =>
         !email || m.sender_email === email || m.sender_name === name
       );
       setMessages(filtered);
@@ -91,14 +113,14 @@ export function SupplierSupport({
     setSubmitting(true);
     try {
       const response = await addSupportMessage?.(name || "Vendor", message);
-      
+
       // Update local state immediately if response returned a message
       if (response && typeof response === 'object') {
         setMessages(prev => [...prev, response]);
       } else {
         await loadMessages();
       }
-      
+
       setMessage("");
       toast({
         title: "Sent",
@@ -126,7 +148,7 @@ export function SupplierSupport({
   const confirmDeleteMessage = async () => {
     if (!deleteDialog) return;
     const { id } = deleteDialog;
-    
+
     try {
       await deleteMessage?.(id);
       setMessages(messages.filter((m) => m.id !== id));
@@ -146,9 +168,9 @@ export function SupplierSupport({
   };
 
   return (
-    <SupplierLayout shopName={shopName} shopLocation={shopLocation} shopApproved={true}>
+    <SupplierLayout shopName={fetchedShopName} shopLocation={fetchedShopLocation} shopApproved={true}>
       <div className="flex flex-col h-[calc(100vh-64px)] lg:h-screen bg-[#F0F2F5] overflow-hidden">
-        
+
         {/* Support Header */}
         <div className="bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between z-10 shadow-sm">
           <div className="flex items-center gap-3">
@@ -172,7 +194,7 @@ export function SupplierSupport({
         </div>
 
         {/* Chat Area */}
-        <div 
+        <div
           ref={scrollRef}
           className="flex-1 overflow-y-auto px-4 py-6 space-y-6 scroll-smooth"
           style={{ backgroundImage: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')", backgroundBlendMode: 'overlay', backgroundColor: '#efe7dd' }}
@@ -208,7 +230,7 @@ export function SupplierSupport({
                           <Check size={12} className="text-gray-400" />
                         )}
                       </div>
-                      <button 
+                      <button
                         onClick={() => handleDeleteMessage(msg.id)}
                         className="absolute -left-8 top-1 opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-all"
                       >
@@ -246,7 +268,7 @@ export function SupplierSupport({
               <Smile size={22} className="cursor-pointer hover:text-gray-600" />
               <Paperclip size={22} className="cursor-pointer hover:text-gray-600" />
             </div>
-            
+
             <div className="flex-1 relative">
               <Textarea
                 placeholder="Type a message"
@@ -295,4 +317,3 @@ export function SupplierSupport({
     </SupplierLayout>
   );
 }
-

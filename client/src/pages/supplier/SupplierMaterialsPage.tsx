@@ -52,12 +52,5 @@ export function SupplierMaterialsPage() {
     );
   }
 
-  return (
-    <SupplierLayout
-      shopName={shop?.name || "Shop"}
-      shopLocation={shop?.location || ""}
-    >
-      <SupplierMaterials />
-    </SupplierLayout>
-  );
+  return <SupplierMaterials />;
 }

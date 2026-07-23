@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useData } from "@/lib/store";
 import { Layout } from "@/components/layout/Layout";
 import {
-  Card, 
+  Card,
   CardContent,
   CardDescription,
   CardHeader,
@@ -24,11 +24,12 @@ interface Shop {
   created_at?: string;
 }
 
-type SupplierStatus = 
-  | "not-approved" 
-  | "no-shop" 
-  | "shop-pending" 
-  | "shop-approved" 
+type SupplierStatus =
+  | "not-approved"
+  | "no-shop"
+  | "shop-pending"
+  | "shop-approved"
+  | "error"
   | "loading";
 
 export default function SupplierDashboard() {
@@ -67,7 +68,7 @@ export default function SupplierDashboard() {
 
       if (!response.ok) {
         console.error("Failed to load shops");
-        setStatus("no-shop");
+        setStatus("error");
         setLoading(false);
         return;
       }
@@ -90,7 +91,7 @@ export default function SupplierDashboard() {
       }
     } catch (error) {
       console.error("Error checking supplier status:", error);
-      setStatus("no-shop");
+      setStatus("error");
     } finally {
       setLoading(false);
     }
@@ -113,62 +114,91 @@ export default function SupplierDashboard() {
     );
   }
 
+  // STATUS: Could not verify shop status - never assume "no shop" here, since that could
+  // incorrectly re-show the Add Shop registration form to a supplier who already has one,
+  // risking a duplicate shop record.
+  if (status === "error") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4">
+        <Card className="w-full max-w-md border-slate-200 bg-white shadow-sm rounded-xl overflow-hidden">
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6 text-rose-500" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Couldn't load your shop status</h2>
+              <p className="text-sm font-medium text-slate-500">
+                We weren't able to confirm your shop details. Please try again — we don't want to risk creating a duplicate shop.
+              </p>
+            </div>
+            <Button
+              onClick={() => checkSupplierStatus()}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold h-11 rounded-lg"
+            >
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // STATUS: Supplier account not approved
   if (status === "not-approved") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4">
-          <Card className="w-full max-w-md border-slate-200 bg-white shadow-sm rounded-xl overflow-hidden">
-            <CardHeader className="text-center pb-2 pt-8">
-              <div className="flex justify-center mb-4">
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <AlertCircle className="w-6 h-6 text-blue-600" />
-                </div>
+        <Card className="w-full max-w-md border-slate-200 bg-white shadow-sm rounded-xl overflow-hidden">
+          <CardHeader className="text-center pb-2 pt-8">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <AlertCircle className="w-6 h-6 text-blue-600" />
               </div>
-              <CardTitle className="text-xl font-bold text-slate-900">Account Pending Review</CardTitle>
-              <CardDescription className="text-xs font-medium text-slate-500">
-                Your supplier account is awaiting approval
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5 p-6">
-              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                <p className="text-sm text-slate-600 font-medium leading-relaxed">
-                  Thank you for registering! Your account is currently under review. 
-                  You'll receive a notification once your account is active.
+            </div>
+            <CardTitle className="text-xl font-bold text-slate-900">Account Pending Review</CardTitle>
+            <CardDescription className="text-xs font-medium text-slate-500">
+              Your supplier account is awaiting approval
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5 p-6">
+            <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                Thank you for registering! Your account is currently under review.
+                You'll receive a notification once your account is active.
+              </p>
+            </div>
+
+            {user?.approvalReason && (
+              <div className="p-4 bg-rose-50 rounded-lg border border-rose-100">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-rose-800/60 mb-1">
+                  Reviewer Feedback
                 </p>
+                <p className="text-sm text-rose-700 font-medium">{user.approvalReason}</p>
               </div>
+            )}
 
-              {user?.approvalReason && (
-                <div className="p-4 bg-rose-50 rounded-lg border border-rose-100">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-rose-800/60 mb-1">
-                    Reviewer Feedback
-                  </p>
-                  <p className="text-sm text-rose-700 font-medium">{user.approvalReason}</p>
-                </div>
-              )}
+            <div className="text-sm text-slate-600 space-y-2">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Verification Protocol:</p>
+              <ul className="space-y-1.5 text-xs font-medium text-slate-500">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> Business Credentials</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> GST Registration</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> Physical Address</li>
+              </ul>
+            </div>
 
-              <div className="text-sm text-slate-600 space-y-2">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Verification Protocol:</p>
-                <ul className="space-y-1.5 text-xs font-medium text-slate-500">
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> Business Credentials</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> GST Registration</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> Physical Address</li>
-                </ul>
-              </div>
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100 text-[11px] font-bold text-blue-700 text-center uppercase tracking-wider">
+              Typical window: 24-48 hours
+            </div>
 
-              <div className="p-3 bg-blue-50 rounded-lg border border-blue-100 text-[11px] font-bold text-blue-700 text-center uppercase tracking-wider">
-                Typical window: 24-48 hours
-              </div>
-
-              <Button
-                onClick={() => setLocation("/")}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold h-11 rounded-lg"
-              >
-                Go to Home
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      );
+            <Button
+              onClick={() => setLocation("/")}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold h-11 rounded-lg"
+            >
+              Go to Home
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   // STATUS: Supplier approved but no shop yet
@@ -181,58 +211,58 @@ export default function SupplierDashboard() {
     const pendingShop = shops.find((s) => !s.approved);
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4">
-          <Card className="w-full max-w-md border-slate-200 bg-white shadow-sm rounded-xl overflow-hidden">
-            <CardHeader className="text-center pb-2 pt-8">
-              <div className="flex justify-center mb-4">
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <Clock className="w-6 h-6 text-blue-600" />
-                </div>
+      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4">
+        <Card className="w-full max-w-md border-slate-200 bg-white shadow-sm rounded-xl overflow-hidden">
+          <CardHeader className="text-center pb-2 pt-8">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <Clock className="w-6 h-6 text-blue-600" />
               </div>
-              <CardTitle className="text-xl font-bold text-slate-900">
-                Shop Under Review
-              </CardTitle>
-              <CardDescription className="text-xs font-medium text-slate-500">
-                Your shop is awaiting approval
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5 p-6">
-              {pendingShop && (
-                <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                  <div className="flex items-start gap-3">
-                    <Building2 className="w-4 h-4 text-slate-400 mt-1" />
-                    <div>
-                      <p className="font-bold text-slate-900 text-sm">
-                        {pendingShop.name}
+            </div>
+            <CardTitle className="text-xl font-bold text-slate-900">
+              Shop Under Review
+            </CardTitle>
+            <CardDescription className="text-xs font-medium text-slate-500">
+              Your shop is awaiting approval
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5 p-6">
+            {pendingShop && (
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div className="flex items-start gap-3">
+                  <Building2 className="w-4 h-4 text-slate-400 mt-1" />
+                  <div>
+                    <p className="font-bold text-slate-900 text-sm">
+                      {pendingShop.name}
+                    </p>
+                    {pendingShop.city && (
+                      <p className="text-[11px] text-slate-500 font-medium">
+                        {pendingShop.city}
+                        {pendingShop.location && ` • ${pendingShop.location}`}
                       </p>
-                      {pendingShop.city && (
-                        <p className="text-[11px] text-slate-500 font-medium">
-                          {pendingShop.city}
-                          {pendingShop.location && ` • ${pendingShop.location}`}
-                        </p>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </div>
-              )}
-
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <p className="text-sm text-blue-900/80 font-medium leading-relaxed">
-                  We're reviewing your shop details. Our team typically
-                  completes this within 24-48 hours. 
-                </p>
               </div>
+            )}
 
-              <Button
-                onClick={() => setLocation("/")}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold h-11 rounded-lg"
-              >
-                Go to Home
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+              <p className="text-sm text-blue-900/80 font-medium leading-relaxed">
+                We're reviewing your shop details. Our team typically
+                completes this within 24-48 hours.
+              </p>
+            </div>
+
+            <Button
+              onClick={() => setLocation("/")}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold h-11 rounded-lg"
+            >
+              Go to Home
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
     );
   }
 
@@ -250,4 +280,3 @@ export default function SupplierDashboard() {
 
   return null;
 }
-

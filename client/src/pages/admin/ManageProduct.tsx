@@ -62,6 +62,28 @@ export default function ManageProduct() {
     const isSupplier = user?.role === "supplier";
     const [location] = useLocation();
     const [step, setStep] = useState(1);
+    const [shopName, setShopName] = useState("");
+    const [shopLocation, setShopLocation] = useState("");
+
+    // Load the supplier's shop name/location for the sidebar header (same source as other supplier pages)
+    useEffect(() => {
+        if (!isSupplier) return;
+        (async () => {
+            try {
+                const r = await apiFetch("/api/supplier/my-shops");
+                if (r.ok) {
+                    const { shops } = await r.json();
+                    const primaryShop = shops?.find((s: any) => s.approved === true) || shops?.[0];
+                    if (primaryShop) {
+                        setShopName(primaryShop.name);
+                        setShopLocation(primaryShop.location || "");
+                    }
+                }
+            } catch (e) {
+                console.error("shop load error", e);
+            }
+        })();
+    }, [isSupplier]);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [configName, setConfigName] = useState("");
     const [selectedCategory, setSelectedCategory] = useState(ALL);
@@ -987,7 +1009,7 @@ export default function ManageProduct() {
     const LayoutComponent = isSupplier ? SupplierLayout : Layout;
 
     return (
-        <LayoutComponent>
+        <LayoutComponent {...(isSupplier ? { shopName, shopLocation, shopApproved: true } : {})}>
             <div className="container mx-auto py-8 px-4">
                 <Card className="max-w-6xl mx-auto shadow-xl border-none">
                     <CardHeader className="bg-primary/5 border-b pb-6">

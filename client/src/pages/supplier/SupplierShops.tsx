@@ -269,7 +269,7 @@ export default function SupplierShops() {
                 <form onSubmit={handleSubmitShop} className="space-y-6">
                   {/* Basic Information */}
                   <div className="space-y-4">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b pb-1.5">Technical Information</h3>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b pb-1.5">Technical Information</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                       <div className="space-y-1.5">
                         <Label className="text-[11px] font-bold text-slate-700">Official Shop Name <Required /></Label>
@@ -310,7 +310,7 @@ export default function SupplierShops() {
 
                   {/* Vendor Categories */}
                   <div className="space-y-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 border-b pb-2">Scope of Operations</h3>
+                    <p className="text-sm font-bold uppercase tracking-wider text-slate-400 border-b pb-2">Scope of Operations</p>
                     <div className="space-y-2.5">
                       <Label className="text-xs font-bold text-slate-700">Vendor Categories <Required /></Label>
                       <Popover>
@@ -379,7 +379,7 @@ export default function SupplierShops() {
 
                   {/* Location Details */}
                   <div className="space-y-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 border-b pb-2">Geographic Presence</h3>
+                    <p className="text-sm font-bold uppercase tracking-wider text-slate-400 border-b pb-2">Geographic Presence</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                       <div className="space-y-2.5">
                         <Label className="text-xs font-bold text-slate-700">Detailed Address <Required /></Label>
@@ -440,7 +440,7 @@ export default function SupplierShops() {
 
                   {/* Legal Information */}
                   <div className="space-y-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 border-b pb-2">Compliance & Policy</h3>
+                    <p className="text-sm font-bold uppercase tracking-wider text-slate-400 border-b pb-2">Compliance & Policy</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                       <div className="space-y-2.5">
                         <Label className="text-xs font-bold text-slate-700">GST Registration Number</Label>

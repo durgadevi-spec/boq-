@@ -1,6 +1,21 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Scoped to the supplier/vendor portal only — nothing outside .supplier-portal
+   is affected, so admin/other layouts keep Inter/Montserrat untouched.
+   Body text, sidebar nav, labels, buttons use the clean sans already used
+   elsewhere in the app; Instrument Serif is reserved for headings, where a
+   display serif actually reads well (it looks thin/odd at small UI sizes). */
+.supplier-portal {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+.supplier-portal h1,
+.supplier-portal h2,
+.supplier-portal h3 {
+  font-family: 'Instrument Serif', serif;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

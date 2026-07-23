@@ -115,6 +115,30 @@ export function AddShopForm({ onShopAdded }: AddShopFormProps) {
     setSubmitting(true);
     try {
       const token = localStorage.getItem("authToken");
+
+      // Guard against creating a second shop for a supplier who already has one
+      // (this is what caused duplicate shop records like "VoltAmp Electricals" x2).
+      try {
+        const existingRes = await fetch("/api/supplier/my-shops", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (existingRes.ok) {
+          const existingData = await existingRes.json();
+          if ((existingData.shops || []).length > 0) {
+            toast({
+              title: "Shop Already Registered",
+              description: "You already have a shop registered on this account. Please refresh the page instead of submitting again.",
+              variant: "destructive",
+            });
+            setSubmitting(false);
+            return;
+          }
+        }
+      } catch {
+        // If this pre-check itself fails, fall through to the server-side guard below
+        // rather than blocking submission entirely.
+      }
+
       const response = await fetch("/api/shops", {
         method: "POST",
         headers: {
@@ -191,7 +215,7 @@ export function AddShopForm({ onShopAdded }: AddShopFormProps) {
               <AlertCircle className="text-blue-600 flex-shrink-0 mt-0.5" size={16} />
               <p className="text-[13px] text-blue-900/80 font-medium leading-relaxed">
                 <strong className="text-blue-900">Shop Approval Required — </strong>
-                After submission, our team reviews your details within 24–48 hours. 
+                After submission, our team reviews your details within 24–48 hours.
               </p>
             </div>
           </CardContent>
@@ -277,15 +301,13 @@ export function AddShopForm({ onShopAdded }: AddShopFormProps) {
                             key={cat}
                             type="button"
                             onClick={() => toggleCategory(cat)}
-                            className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-blue-50 transition ${
-                              selectedCategories.includes(cat) ? "bg-blue-50 text-blue-800 font-semibold" : "text-slate-700"
-                            }`}
+                            className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-blue-50 transition ${selectedCategories.includes(cat) ? "bg-blue-50 text-blue-800 font-semibold" : "text-slate-700"
+                              }`}
                           >
-                            <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                              selectedCategories.includes(cat)
-                                ? "bg-blue-600 border-blue-600"
-                                : "border-slate-300"
-                            }`}>
+                            <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${selectedCategories.includes(cat)
+                              ? "bg-blue-600 border-blue-600"
+                              : "border-slate-300"
+                              }`}>
                               {selectedCategories.includes(cat) && (
                                 <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

@@ -2254,6 +2254,25 @@ export async function registerRoutes(
           return;
         }
 
+        // Suppliers are only ever supposed to own one shop. Without this check, a
+        // supplier landing back on the "Add Shop" registration screen (e.g. after a
+        // transient error re-showing that form) could submit again and create a second,
+        // duplicate shop row for the same business. Scoped to role === "supplier" only,
+        // so admin/software_team/purchase_team shop creation (e.g. bulk upload) is unaffected.
+        if (req.user.role === "supplier") {
+          const existingShop = await query(
+            "SELECT id FROM shops WHERE owner_id = $1 LIMIT 1",
+            [req.user.id],
+          );
+          if (existingShop.rows.length > 0) {
+            res.status(409).json({
+              message:
+                "You already have a shop registered on this account. Please refresh the page instead of submitting again.",
+            });
+            return;
+          }
+        }
+
         const body = req.body || {};
         const id = randomUUID();
         const categories = Array.isArray(body.categories)
@@ -4798,6 +4817,7 @@ export async function registerRoutes(
                   m.dimensions, m.finishtype, m.metaltype,
                   COALESCE(m.image, mt.image) as image,
                   m.shop_id, s.name as shop_name,
+                  m.template_id,
                   m.approved,
                   'material' as source
            FROM materials m
@@ -4818,6 +4838,7 @@ export async function registerRoutes(
                   ms.dimensions, ms.finishtype, ms.metaltype,
                   mt.image,
                   ms.shop_id, s.name as shop_name,
+                  ms.template_id,
                   ms.approved,
                   'submission' as source
            FROM material_submissions ms
@@ -4828,13 +4849,22 @@ export async function registerRoutes(
           [shopIds]
         );
 
-        // Combine: materials first, then submissions that don't already have a matching material
+        // Combine: materials first, then submissions that don't already have a matching material.
+        // NOTE: when a submission is approved, a NEW row is inserted into `materials` with a brand-new
+        // id (see POST /api/material-submissions/:id/approve) — the original submission row stays in
+        // `material_submissions` with approved=true. So the same real-world item ends up as two rows
+        // with two different ids, and deduping by id alone never matches them (hence the duplicate
+        // entries in the supplier's My Materials list). Dedupe by (shop_id, template_id) instead, since
+        // that pair is shared between a submission and the material it produced.
         const allMaterials = materialsResult.rows;
         const submissions = submissionsResult.rows;
 
-        // Collect all items (prefer material records; add submissions not already represented)
-        const seen = new Set(allMaterials.map((m: any) => m.id));
-        const extra = submissions.filter((s: any) => !seen.has(s.id));
+        const seen = new Set(
+          allMaterials.map((m: any) => `${m.shop_id}::${m.template_id}`)
+        );
+        const extra = submissions.filter(
+          (s: any) => !seen.has(`${s.shop_id}::${s.template_id}`)
+        );
         const combined = [...allMaterials, ...extra];
 
         return res.json({ materials: combined, shops });

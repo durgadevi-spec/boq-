@@ -1661,6 +1661,28 @@ export default function CreateSketchPlan() {
   const isSupplier = userRole === "supplier";
   const isSupplierReadOnly = isSupplier && isEditing && (planCreatedBy !== user?.id); // Suppliers can create new plans but view existing ones as read-only UNLESS they created it
   const isAdmin = userRole === "admin";
+  const [shopName, setShopName] = useState("");
+  const [shopLocation, setShopLocation] = useState("");
+
+  // Load the supplier's shop name/location for the sidebar header (same source as other supplier pages)
+  useEffect(() => {
+    if (!isSupplier) return;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/supplier/my-shops");
+        if (r.ok) {
+          const { shops } = await r.json();
+          const primaryShop = shops?.find((s: any) => s.approved === true) || shops?.[0];
+          if (primaryShop) {
+            setShopName(primaryShop.name);
+            setShopLocation(primaryShop.location || "");
+          }
+        }
+      } catch (e) {
+        console.error("shop load error", e);
+      }
+    })();
+  }, [isSupplier]);
 
   // Column Visibility State and Handlers
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(DEFAULT_COLUMN_VISIBILITY);
@@ -3622,8 +3644,8 @@ export default function CreateSketchPlan() {
   }, [currentId, user, myAvatar]);
 
   return (
-    <LayoutComponent {...(isSupplier ? { shopName: "", shopLocation: "", shopApproved: true } : {})}>
-      <div className="max-w-7xl mx-auto space-y-2 pb-20 relative">
+    <LayoutComponent {...(isSupplier ? { shopName, shopLocation, shopApproved: true } : {})}>
+      <div className={cn("max-w-7xl mx-auto space-y-2 pb-20 relative", isSupplier && "p-4 md:p-8")}>
 
         {initialLoading ? (
           <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -5195,8 +5217,8 @@ export default function CreateSketchPlan() {
                 </SelectTrigger>
                 <SelectContent className="z-[160] max-h-[300px]">
                   <div className="p-2 sticky top-0 bg-white z-10 border-b">
-                    <Input 
-                      placeholder="Search project..." 
+                    <Input
+                      placeholder="Search project..."
                       value={projectSearchTerm}
                       onChange={(e) => setProjectSearchTerm(e.target.value)}
                       onKeyDown={(e) => e.stopPropagation()}

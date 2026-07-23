@@ -95,7 +95,7 @@ export function SupplierDashboardPage({
           <div className="flex items-start justify-between">
             <div className="space-y-1">
               <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{title}</p>
-              <h3 className="text-3xl font-black text-slate-900 tracking-tight">{value}</h3>
+              <p className="text-3xl font-black text-slate-900 tracking-tight">{value}</p>
               <p className="text-[11px] font-semibold text-slate-500/80">{subtitle}</p>
             </div>
             <div className={cn("p-3 rounded-xl transition-all duration-300 group-hover:scale-110", colors)}>
@@ -120,7 +120,7 @@ export function SupplierDashboardPage({
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
                   Live Monitoring
                 </div>
-                <h1 className="text-3xl font-black tracking-tight text-slate-900">
+                <h1 className="text-3xl font-black tracking-tight text-slate-900" style={{ fontFamily: "'Montserrat', sans-serif" }}>
                   Vendor Dashboard
                 </h1>
                 <p className="text-slate-500 max-w-md text-sm font-medium leading-relaxed">

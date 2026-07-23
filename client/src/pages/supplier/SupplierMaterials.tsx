@@ -1,5 +1,6 @@
 // V2 FIX - AUTH CONTEXT UPDATE
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { SupplierLayout } from "@/components/layout/SupplierLayout";
 import {
@@ -257,13 +258,14 @@ export default function SupplierMaterials() {
     setEntriesList(entriesList.filter((_, i) => i !== index));
   };
 
-  const isSupplier = user?.role === "supplier";
+  const [location] = useLocation();
+  const isSupplier = user?.role === "supplier" || location.startsWith("/supplier");
   const LayoutComponent = isSupplier ? SupplierLayout : Layout;
 
   return (
     <LayoutComponent {...(isSupplier ? { shopName, shopLocation, shopApproved: true } : {})}>
-      <div className="min-h-screen bg-[#FDFDFD]">
-        <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
+      <div className="min-h-full bg-[#FDFDFD] w-full">
+        <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8 w-full">
           {/* Header Section */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="space-y-1.5">
@@ -295,7 +297,7 @@ export default function SupplierMaterials() {
 
               <div className="space-y-3 mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="min-w-0">
                     <Label className="text-xs mb-1.5 block font-bold text-slate-700">Search Templates</Label>
                     <Input
                       value={templatesSearch}
@@ -304,7 +306,7 @@ export default function SupplierMaterials() {
                       className="h-10 rounded-lg text-sm"
                     />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <Label className="text-xs mb-1.5 block font-bold text-slate-700">Filter by Vendor Category</Label>
                     <Select value={vendorCategoryFilter} onValueChange={setVendorCategoryFilter}>
                       <SelectTrigger className="h-10 rounded-lg text-sm">
@@ -339,7 +341,7 @@ export default function SupplierMaterials() {
                       <div key={template.id} className="py-2.5 px-5 hover:bg-slate-50 transition-all duration-200 cursor-pointer group flex items-center justify-between gap-4">
                         <div className="flex-1 min-w-0 flex items-center gap-2.5">
                           <span className="font-semibold text-slate-900 text-sm truncate">{template.name}</span>
-                          <span className="text-[11px] font-medium text-slate-400">({template.code})</span>
+                          <span className="text-[11px] font-medium text-slate-400 flex-shrink-0">({template.code})</span>
                         </div>
                         <Button 
                           size="sm" 
@@ -376,7 +378,7 @@ export default function SupplierMaterials() {
                 <CardContent className="p-6">
                   <form onSubmit={handleSubmitMaterial} className="space-y-8">
                     <div className="space-y-4">
-                      <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Outlet & Commercials</h3>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Outlet & Commercials</p>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                         <div className="space-y-1.5">
                           <Label className="text-slate-700 font-bold text-xs">Outlet Location <Required /></Label>
@@ -427,7 +429,7 @@ export default function SupplierMaterials() {
                     </div>
 
                     <div className="space-y-4">
-                      <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Additional Information</h3>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Additional Information</p>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-1.5">
                           <Label className="text-slate-700 font-bold text-xs">Brand / Make</Label>

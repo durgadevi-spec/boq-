@@ -300,7 +300,7 @@ export default function SketchPlans() {
     <LayoutComponent
       {...(isSupplier ? { shopName: shopInfo.name, shopLocation: shopInfo.location, shopApproved: true } : {})}
     >
-      <div className="space-y-6">
+      <div className={`space-y-6 ${isSupplier ? "p-4 md:p-8 max-w-7xl mx-auto" : ""}`}>
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
